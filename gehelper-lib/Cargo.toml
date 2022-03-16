@@ -1,0 +1,30 @@
+[package]
+name = "gehelper-lib"
+version = "0.1.0"
+edition = "2021"
+keywords = ["Proton", "Wine", "GloriousEgroll", "GE", "Steam", "Lutris"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+description = "Common functionality for downloading and extracting GE Proton or Wine GE releases."
+
+[dependencies]
+reqwest = { version = "0.11.9", features = ["blocking", "json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.8"
+vdf-serde = "0.3"
+ring = "0.16"
+data-encoding = "2.3"
+regex = "1.5"
+lazy_static = "1.4"
+tar = "0.4.38"
+flate2 = { version = "1.0.22", features = ["zlib"], default-features = false }
+xz2 = "0.1.6"
+thiserror = "1.0.30"
+
+[dev-dependencies]
+test-case = "1.2"
+httpmock = "0.6"
+assert_fs = "1.0"
+predicates = "2.0"
+mockall = "0.11.0"

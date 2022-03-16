@@ -1,0 +1,94 @@
+{
+  "versions": [
+    {
+      "type": "Version",
+      "tag": "6.20-GE-1",
+      "in_use": true,
+      "kind": {
+        "type": "Proton"
+      }
+    },
+    {
+      "type": "Version",
+      "tag": "6.19-GE-2",
+      "in_use": true,
+      "kind": {
+        "type": "Proton"
+      }
+    },
+    {
+      "type": "Version",
+      "tag": "6.19-GE-1",
+      "in_use": true,
+      "kind": {
+        "type": "Proton"
+      }
+    },
+    {
+      "type": "Version",
+      "tag": "6.20-GE-1",
+      "in_use": true,
+      "kind": {
+        "type": "Wine",
+        "kind": {
+          "type": "WineGe"
+        }
+      }
+    },
+    {
+      "type": "Version",
+      "tag": "6.19-GE-2",
+      "in_use": true,
+      "kind": {
+        "type": "Wine",
+        "kind": {
+          "type": "WineGe"
+        }
+      }
+    },
+    {
+      "type": "Version",
+      "tag": "6.19-GE-1",
+      "in_use": true,
+      "kind": {
+        "type": "Wine",
+        "kind": {
+          "type": "WineGe"
+        }
+      }
+    },
+    {
+      "type": "Version",
+      "tag": "6.16-GE-3-LoL",
+      "in_use": true,
+      "kind": {
+        "type": "Wine",
+        "kind": {
+          "type": "LolWineGe"
+        }
+      }
+    },
+    {
+      "type": "Version",
+      "tag": "6.16-2-GE-LoL",
+      "in_use": true,
+      "kind": {
+        "type": "Wine",
+        "kind": {
+          "type": "LolWineGe"
+        }
+      }
+    },
+    {
+      "type": "Version",
+      "tag": "6.16-1-GE-LoL",
+      "in_use": true,
+      "kind": {
+        "type": "Wine",
+        "kind": {
+          "type": "LolWineGe"
+        }
+      }
+    }
+  ]
+}

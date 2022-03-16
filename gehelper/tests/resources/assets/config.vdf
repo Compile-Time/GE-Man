@@ -1,0 +1,57 @@
+"InstallConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"CompatToolMapping"
+				{
+					"0"
+					{
+						"name"		"Proton-6.21-GE-2"
+						"config"		""
+						"Priority"		"75"
+					}
+					"220240"
+					{
+						"name"		"Proton-5.9-GE-5-ST"
+						"config"		""
+						"Priority"		"250"
+					}
+					"1097150"
+					{
+						"name"		"Proton-5.9-GE-5-ST"
+						"config"		""
+						"Priority"		"250"
+					}
+					"440"
+					{
+						"name"		""
+						"config"		""
+						"Priority"		"250"
+					}
+					"250900"
+					{
+						"name"		"proton_63"
+						"config"		""
+						"Priority"		"250"
+					}
+					"1217060"
+					{
+						"name"		"proton_63"
+						"config"		""
+						"Priority"		"250"
+					}
+					"632360"
+					{
+						"name"		""
+						"config"		""
+						"Priority"		"250"
+					}
+				}
+			}
+		}
+	}
+}

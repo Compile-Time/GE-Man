@@ -1,0 +1,17 @@
+{
+  "tag_name": "6.20-GE-1",
+  "assets": [
+    {
+      "name": "wine-lutris-ge-6.20-1-x86_64.sha512sum",
+      "content_type": "application/octet-stream",
+      "size": 154,
+      "browser_download_url": "SERVER/GloriousEggroll/wine-ge-custom/releases/download/6.20-GE-1/wine-lutris-ge-6.20-1-x86_64.sha512sum"
+    },
+    {
+      "name": "wine-lutris-ge-6.20-1-x86_64.tar.gz",
+      "content_type": "application/gzip",
+      "size": 427333272,
+      "browser_download_url": "SERVER/GloriousEggroll/wine-ge-custom/releases/download/6.20-GE-1/wine-lutris-ge-6.20-1-x86_64.tar.gz"
+    }
+  ]
+}

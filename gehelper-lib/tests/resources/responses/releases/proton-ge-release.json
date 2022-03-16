@@ -1,0 +1,17 @@
+{
+  "tag_name": "6.20-GE-1",
+  "assets": [
+    {
+      "name": "Proton-6.20-GE-1.sha512sum",
+      "content_type": "application/octet-stream",
+      "size": 154,
+      "browser_download_url": "SERVER/GloriousEggroll/proton-ge-custom/releases/download/6.20-GE-1/Proton-6.20-GE-1.sha512sum"
+    },
+    {
+      "name": "Proton-6.20-GE-1.tar.gz",
+      "content_type": "application/gzip",
+      "size": 427333272,
+      "browser_download_url": "SERVER/GloriousEggroll/proton-ge-custom/releases/download/6.20-GE-1/Proton-6.20-GE-1.tar.gz"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+system:
+  game_path: <redacted>
+  prime: true
+  resolution: 'off'
+wine:
+  esync: true
+  fsync: true
+  show_debug: ''

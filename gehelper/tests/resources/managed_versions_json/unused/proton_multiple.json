@@ -1,0 +1,44 @@
+{
+  "versions": [
+    {
+      "type": "Version",
+      "tag": "6.20-GE-1",
+      "in_use": false,
+      "kind": {
+        "type": "Proton"
+      }
+    },
+    {
+      "type": "Version",
+      "tag": "6.19-GE-2",
+      "in_use": false,
+      "kind": {
+        "type": "Proton"
+      }
+    },
+    {
+      "type": "Version",
+      "tag": "6.19-GE-1",
+      "in_use": false,
+      "kind": {
+        "type": "Proton"
+      }
+    },
+    {
+      "type": "Version",
+      "tag": "6.18-GE-2",
+      "in_use": false,
+      "kind": {
+        "type": "Proton"
+      }
+    },
+    {
+      "type": "Version",
+      "tag": "6.18-GE-1",
+      "in_use": false,
+      "kind": {
+        "type": "Proton"
+      }
+    }
+  ]
+}

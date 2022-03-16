@@ -1,0 +1,26 @@
+[package]
+name = "gehelper"
+version = "0.1.0"
+edition = "2021"
+keywords = ["Proton", "Wine", "GloriousEgroll", "GE", "Steam", "Lutris"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+description = "A manager for GE Proton and Wine GE versions."
+
+
+[dependencies]
+gehelper-lib = { path = "../gehelper-lib" }
+clap = { version = "3.1.6", features = ["cargo"] }
+lazy_static = "1.4"
+indicatif = "0.16"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+itertools = "0.10.3"
+anyhow = "1.0.52"
+
+[dev-dependencies]
+test-case = "1.2"
+httpmock = "0.6"
+assert_fs = "1.0"
+predicates = "2.0"
+mockall = "0.11"
