@@ -1,0 +1,9 @@
+system:
+  game_path: <redacted>
+  prime: true
+  resolution: 'off'
+wine:
+  esync: true
+  fsync: true
+  show_debug: ''
+  version: lutris-ge-6.21-1-x86_64
