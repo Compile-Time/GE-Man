@@ -35,7 +35,7 @@ GE-Man consists of two Rust workspaces:
 This project is build by using [Cargo](https://doc.rust-lang.org/cargo/) - Rust's package manager.
 Additionally, [cross](https://github.com/cross-rs/cross) can be used to verify builds for other architectures.
 
-For local development the library crate [GE-Man-Lib] (https://github.com/Compile-Time/GE-Man-Lib) needs to be present on
+For local development the library crate [GE-Man-Lib](https://github.com/Compile-Time/GE-Man-Lib) needs to be present on
 the same directory root as the `GE-Man` directory (`../GE-Man-Lib`).
 
 The library crate requires a version of OpenSSL to be present for linking. By default, the installed OpenSSL version of
