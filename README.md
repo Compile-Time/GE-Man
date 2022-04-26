@@ -44,7 +44,7 @@ to no OpenSSL library being present.
 
 # Installation
 
-GE-Man can be installed with cargo or by downloading the precompiled binaries from the [release page]().
+GE-Man can be installed with cargo or by downloading the precompiled binaries from the [release page](https://github.com/Compile-Time/GE-Man/releases).
 
 `cargo install ge-man`
 
