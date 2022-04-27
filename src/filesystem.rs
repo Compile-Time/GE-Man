@@ -13,7 +13,7 @@ use ge_man_lib::tag::TagKind;
 
 use crate::data::ManagedVersion;
 use crate::path::{
-    LUTRIS_WINE_RUNNERS_DIR, PathConfiguration, STEAM_COMP_DIR, steam_path, xdg_config_home, xdg_data_home,
+    steam_path, xdg_config_home, xdg_data_home, PathConfiguration, LUTRIS_WINE_RUNNERS_DIR, STEAM_COMP_DIR,
 };
 use crate::version::{Version, Versioned};
 
@@ -93,12 +93,7 @@ impl<'a> FilesystemManager for FsMng<'a> {
             TagKind::Proton => self
                 .path_config
                 .steam_compatibility_tools_dir(xdg_data_home(), steam_path()),
-            TagKind::Wine { .. } => {
-                let path = self.path_config.lutris_runners_dir(xdg_data_home());
-                // The `wine` directory might not exist.
-                fs::create_dir_all(&path)?;
-                path
-            }
+            TagKind::Wine { .. } => self.path_config.lutris_runners_dir(xdg_data_home()),
         };
         let extracted_location = archive::extract_compressed(version.kind(), compressed_tar, &dst_path)
             .context("Failed to extract compressed archive")?;
@@ -161,7 +156,7 @@ impl<'a> FilesystemManager for FsMng<'a> {
                 fs::write(path, new_config)?;
             }
             TagKind::Wine { .. } => {
-                let path = self.path_config.lutris_wine_config(xdg_config_home());
+                let path = self.path_config.lutris_wine_runner_config(xdg_config_home());
                 fs::copy(
                     &path,
                     self.path_config

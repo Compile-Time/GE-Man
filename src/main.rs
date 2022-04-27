@@ -11,7 +11,7 @@ use ge_man::clap::commands::{
     ADD, APPLY, CHECK, FORGET, LIST, MIGRATE, PROTON_USER_SETTINGS, REMOVE, USER_SETTINGS_COPY,
 };
 use ge_man::filesystem::FsMng;
-use ge_man::path::{AppConfigPaths, PathConfig};
+use ge_man::path::{AppConfigPaths, PathConfig, PathConfiguration};
 use ge_man::ui::TerminalWriter;
 use ge_man::{clap, path};
 
@@ -22,8 +22,15 @@ fn main() -> anyhow::Result<()> {
     let mut err_handle = stderr.lock();
 
     let path_config = PathConfig::default();
-    if let Err(err) = path::create_xdg_directories(&path_config) {
+    if let Err(err) = path_config.create_ge_man_dirs(path::xdg_config_home(), path::xdg_data_home()) {
         bail!("Failed to setup xdg directory structure: {:#}", err);
+    }
+
+    if let Err(err) = path_config.create_app_dirs(path::xdg_config_home(), path::xdg_data_home(), path::steam_path()) {
+        bail!(
+            "Failed to setup required directory paths for Steam and Lutris: {:#}",
+            err
+        );
     }
 
     let compatibility_tool_downloader = GeDownloader::default();

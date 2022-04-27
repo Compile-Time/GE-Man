@@ -1,11 +1,10 @@
-use std::{env, fs};
 use std::path::PathBuf;
+use std::{env, fs};
 
 use anyhow::Context;
+use ge_man_lib::tag::TagKind;
 #[cfg(test)]
 use mockall::automock;
-
-use ge_man_lib::tag::TagKind;
 
 pub const STEAM_COMP_DIR: &str = "Steam/compatibilitytools.d";
 pub const LUTRIS_WINE_RUNNERS_DIR: &str = "lutris/runners/wine";
@@ -16,15 +15,6 @@ const XDG_CONFIG_HOME: &str = "XDG_CONFIG_HOME";
 const STEAM_PATH_ENV: &str = "STEAM_PATH";
 
 const APP_NAME: &str = "ge_man";
-
-pub fn create_xdg_directories(path_cfg: &impl PathConfiguration) -> anyhow::Result<()> {
-    fs::create_dir_all(path_cfg.ge_man_config_dir(env::var(XDG_CONFIG_HOME).ok()))
-        .context("Failed to setup config directory in XDG_CONFIG_HOME")?;
-    fs::create_dir_all(path_cfg.ge_man_data_dir(env::var(XDG_DATA_HOME).ok()))
-        .context("Failed to setup data directory in XDG_DATA_HOME")?;
-
-    Ok(())
-}
 
 pub fn xdg_data_home() -> Option<String> {
     env::var(XDG_DATA_HOME).ok()
@@ -40,70 +30,116 @@ pub fn steam_path() -> Option<String> {
 
 #[cfg_attr(test, automock)]
 pub trait PathConfiguration {
-    fn xdg_data_dir(&self, xdg_data_path: Option<String>) -> PathBuf {
-        let data_dir = xdg_data_path
+    fn xdg_data_dir(&self, xdg_data_home: Option<String>) -> PathBuf {
+        let data_dir = xdg_data_home
             .or_else(|| env::var(HOME).ok().map(|home| format!("{}/.local/share", home)))
             .unwrap();
 
         PathBuf::from(data_dir)
     }
 
-    fn xdg_config_dir(&self, xdg_config_path: Option<String>) -> PathBuf {
-        let config_dir = xdg_config_path
+    fn xdg_config_dir(&self, xdg_config_home: Option<String>) -> PathBuf {
+        let config_dir = xdg_config_home
             .or_else(|| env::var(HOME).ok().map(|home| format!("{}/.config", home)))
             .unwrap();
 
         PathBuf::from(config_dir)
     }
 
-    fn steam(&self, xdg_data_path: Option<String>, steam_path: Option<String>) -> PathBuf {
+    fn steam(&self, xdg_data_home: Option<String>, steam_path: Option<String>) -> PathBuf {
         steam_path
             .map(PathBuf::from)
-            .unwrap_or_else(|| self.xdg_data_dir(xdg_data_path).join("Steam"))
+            .unwrap_or_else(|| self.xdg_data_dir(xdg_data_home).join("Steam"))
     }
 
-    fn lutris_local(&self, xdg_data_path: Option<String>) -> PathBuf {
-        self.xdg_data_dir(xdg_data_path).join("lutris")
+    fn lutris_local(&self, xdg_data_home: Option<String>) -> PathBuf {
+        self.xdg_data_dir(xdg_data_home).join("lutris")
     }
 
-    fn lutris_config(&self, xdg_config_path: Option<String>) -> PathBuf {
-        self.xdg_config_dir(xdg_config_path).join("lutris")
+    fn lutris_config(&self, xdg_config_home: Option<String>) -> PathBuf {
+        self.xdg_config_dir(xdg_config_home).join("lutris")
     }
 
-    fn steam_config(&self, xdg_data_path: Option<String>, steam_path: Option<String>) -> PathBuf {
-        self.steam(xdg_data_path, steam_path).join("config/config.vdf")
+    fn steam_config(&self, xdg_data_home: Option<String>, steam_path: Option<String>) -> PathBuf {
+        self.steam(xdg_data_home, steam_path).join("config/config.vdf")
     }
 
-    fn steam_compatibility_tools_dir(&self, xdg_data_path: Option<String>, steam_path: Option<String>) -> PathBuf {
-        self.steam(xdg_data_path, steam_path).join("compatibilitytools.d")
+    fn steam_compatibility_tools_dir(&self, xdg_data_home: Option<String>, steam_path: Option<String>) -> PathBuf {
+        self.steam(xdg_data_home, steam_path).join("compatibilitytools.d")
     }
 
-    fn lutris_wine_config(&self, xdg_config_path: Option<String>) -> PathBuf {
-        self.lutris_config(xdg_config_path).join("runners/wine.yml")
+    fn lutris_runners_config_dir(&self, xdg_config_home: Option<String>) -> PathBuf {
+        self.lutris_config(xdg_config_home).join("runners")
     }
 
-    fn lutris_runners_dir(&self, xdg_data_path: Option<String>) -> PathBuf {
-        self.lutris_local(xdg_data_path).join("runners/wine")
+    fn lutris_wine_runner_config(&self, xdg_config_home: Option<String>) -> PathBuf {
+        self.lutris_runners_config_dir(xdg_config_home).join("wine.yml")
     }
 
-    fn ge_man_data_dir(&self, xdg_data_path: Option<String>) -> PathBuf {
-        self.xdg_data_dir(xdg_data_path).join(APP_NAME)
+    fn lutris_runners_dir(&self, xdg_data_home: Option<String>) -> PathBuf {
+        self.lutris_local(xdg_data_home).join("runners/wine")
     }
 
-    fn ge_man_config_dir(&self, xdg_config_path: Option<String>) -> PathBuf {
-        self.xdg_config_dir(xdg_config_path).join(APP_NAME)
+    fn ge_man_data_dir(&self, xdg_data_home: Option<String>) -> PathBuf {
+        self.xdg_data_dir(xdg_data_home).join(APP_NAME)
     }
 
-    fn managed_versions_config(&self, xdg_data_path: Option<String>) -> PathBuf {
-        self.ge_man_data_dir(xdg_data_path).join("managed_versions.json")
+    fn ge_man_config_dir(&self, xdg_config_home: Option<String>) -> PathBuf {
+        self.xdg_config_dir(xdg_config_home).join(APP_NAME)
     }
 
-    fn app_config_backup_file(&self, xdg_config_path: Option<String>, kind: &TagKind) -> PathBuf {
+    fn managed_versions_config(&self, xdg_data_home: Option<String>) -> PathBuf {
+        self.ge_man_data_dir(xdg_data_home).join("managed_versions.json")
+    }
+
+    fn app_config_backup_file(&self, xdg_config_home: Option<String>, kind: &TagKind) -> PathBuf {
         let config_file = match kind {
             TagKind::Proton => "steam-config-backup.vdf",
             TagKind::Wine { .. } => "lutris-wine-runner-config-backup.yml",
         };
-        self.ge_man_config_dir(xdg_config_path).join(config_file)
+        self.ge_man_config_dir(xdg_config_home).join(config_file)
+    }
+
+    fn create_ge_man_dirs(&self, xdg_config_home: Option<String>, xdg_data_home: Option<String>) -> anyhow::Result<()> {
+        let ge_config_dir = self.ge_man_config_dir(xdg_config_home);
+        let ge_data_dir = self.ge_man_data_dir(xdg_data_home);
+
+        fs::create_dir_all(&ge_config_dir).context(format!(
+            r#"Failed to create directory "ge_man" in {}"#,
+            ge_config_dir.display()
+        ))?;
+        fs::create_dir_all(&ge_data_dir).context(format!(
+            r#"Failed to create directory "ge_man" in {}"#,
+            ge_data_dir.display()
+        ))?;
+
+        Ok(())
+    }
+
+    fn create_app_dirs(
+        &self,
+        xdg_config_home: Option<String>,
+        xdg_data_home: Option<String>,
+        steam_path: Option<String>,
+    ) -> anyhow::Result<()> {
+        let steam_compat_dir = self.steam_compatibility_tools_dir(xdg_data_home.clone(), steam_path);
+        let lutris_runners_cfg_dir = self.lutris_runners_config_dir(xdg_config_home);
+        let lutris_runners_dir = self.lutris_runners_dir(xdg_data_home);
+
+        fs::create_dir_all(&steam_compat_dir).context(format!(
+            r#"Failed to create directory "compatibilitytools.d" in {}"#,
+            steam_compat_dir.display()
+        ))?;
+        fs::create_dir_all(&lutris_runners_cfg_dir).context(format!(
+            r#"Failed to create directory "runners" in {}"#,
+            lutris_runners_cfg_dir.display()
+        ))?;
+        fs::create_dir_all(&lutris_runners_dir).context(format!(
+            r#"Failed to create directory "wine" in {}"#,
+            lutris_runners_dir.display()
+        ))?;
+
+        Ok(())
     }
 }
 
@@ -125,7 +161,7 @@ impl<T: PathConfiguration> From<&T> for AppConfigPaths {
     fn from(path_cfg: &T) -> Self {
         AppConfigPaths::new(
             path_cfg.steam_config(xdg_data_home(), steam_path()),
-            path_cfg.lutris_wine_config(xdg_config_home()),
+            path_cfg.lutris_wine_runner_config(xdg_config_home()),
         )
     }
 }
@@ -152,7 +188,6 @@ mod tests {
 
     use assert_fs::prelude::{PathAssert, PathChild};
     use assert_fs::TempDir;
-
     use ge_man_lib::tag::TagKind;
 
     use super::*;
@@ -286,7 +321,7 @@ mod tests {
     #[test]
     fn lutris_wine_config_with_no_override() {
         let path_cfg = PathConfig::default();
-        let path = path_cfg.lutris_wine_config(None);
+        let path = path_cfg.lutris_wine_runner_config(None);
 
         assert!(path.to_string_lossy().contains("home"));
         assert!(path.to_string_lossy().contains(".config/lutris/runners/wine.yml"));
@@ -295,7 +330,7 @@ mod tests {
     #[test]
     fn lutris_wine_config_with_xdg_config_override() {
         let path_cfg = PathConfig::default();
-        let path = path_cfg.lutris_wine_config(Some(String::from("/tmp/xdg-config")));
+        let path = path_cfg.lutris_wine_runner_config(Some(String::from("/tmp/xdg-config")));
 
         assert_eq!(path, PathBuf::from("/tmp/xdg-config/lutris/runners/wine.yml"));
     }
@@ -412,25 +447,50 @@ mod tests {
     }
 
     #[test]
-    fn create_paths_should_create_application_directories() {
+    fn create_ge_man_dirs_should_create_ge_man_directories() {
         let tmp_dir = TempDir::new().unwrap();
         let config_dir = tmp_dir.join("config");
-        let data_dir = tmp_dir.join("data");
+        let data_dir = tmp_dir.join("local");
 
-        let mut path_cfg = MockPathConfiguration::new();
+        let path_cfg = PathConfig::default();
         path_cfg
-            .expect_ge_man_config_dir()
-            .once()
-            .returning(move |_| config_dir.clone());
+            .create_ge_man_dirs(
+                Some(config_dir.display().to_string()),
+                Some(data_dir.display().to_string()),
+            )
+            .unwrap();
+
+        tmp_dir.child("config/ge_man").assert(predicates::path::exists());
+        tmp_dir.child("local/ge_man").assert(predicates::path::exists());
+
+        tmp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn create_app_dirs_should_create_steam_and_lutris_directories() {
+        let tmp_dir = TempDir::new().unwrap();
+        let steam_dir = tmp_dir.join("local/Steam");
+        let config_dir = tmp_dir.join("config");
+        let data_dir = tmp_dir.join("local");
+
+        let path_cfg = PathConfig::default();
         path_cfg
-            .expect_ge_man_data_dir()
-            .once()
-            .returning(move |_| data_dir.clone());
+            .create_app_dirs(
+                Some(config_dir.display().to_string()),
+                Some(data_dir.display().to_string()),
+                Some(steam_dir.display().to_string()),
+            )
+            .unwrap();
 
-        create_xdg_directories(&path_cfg).unwrap();
-
-        tmp_dir.child("config").assert(predicates::path::exists());
-        tmp_dir.child("data").assert(predicates::path::exists());
+        tmp_dir
+            .child("local/Steam/compatibilitytools.d")
+            .assert(predicates::path::exists());
+        tmp_dir
+            .child("config/lutris/runners")
+            .assert(predicates::path::exists());
+        tmp_dir
+            .child("local/lutris/runners/wine")
+            .assert(predicates::path::exists());
 
         tmp_dir.close().unwrap();
     }
