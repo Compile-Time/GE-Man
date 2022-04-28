@@ -1,15 +1,14 @@
-use std::fs;
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
+use std::{fs, io};
 
-use anyhow::{bail, Context};
-#[cfg(test)]
-use mockall::{automock, predicate::*};
-
+use anyhow::{anyhow, bail, Context};
 use ge_man_lib::archive;
 use ge_man_lib::config::{LutrisConfig, SteamConfig};
 use ge_man_lib::tag::TagKind;
+#[cfg(test)]
+use mockall::{automock, predicate::*};
 
 use crate::data::ManagedVersion;
 use crate::path::{
@@ -18,6 +17,10 @@ use crate::path::{
 use crate::version::{Version, Versioned};
 
 const USER_SETTINGS_PY: &str = "user_settings.py";
+const LUTRIS_INITIAL_WINE_RUNNER_CONFIG: &str = r#"
+wine:
+  version: VERSION
+"#;
 
 #[cfg_attr(test, automock)]
 pub trait FilesystemManager {
@@ -142,32 +145,52 @@ impl<'a> FilesystemManager for FsMng<'a> {
     fn apply_to_app_config(&self, version: &ManagedVersion) -> anyhow::Result<()> {
         match version.kind() {
             TagKind::Proton => {
-                let path = self.path_config.steam_config(xdg_data_home(), steam_path());
-                fs::copy(
-                    &path,
-                    self.path_config
-                        .app_config_backup_file(xdg_config_home(), version.kind()),
-                )?;
+                let steam_cfg_path = self.path_config.steam_config(xdg_data_home(), steam_path());
+                let backup_path = self
+                    .path_config
+                    .app_config_backup_file(xdg_config_home(), version.kind());
 
-                let mut config = SteamConfig::create_copy(&path)?;
+                fs::copy(&steam_cfg_path, &backup_path).context(format!(
+                    r#"Could not create backup of Steam config from "{}" to "{}" "#,
+                    steam_cfg_path.display(),
+                    backup_path.display()
+                ))?;
+
+                let mut config = SteamConfig::create_copy(&steam_cfg_path)?;
                 config.set_proton_version(version.directory_name());
 
                 let new_config: Vec<u8> = config.into();
-                fs::write(path, new_config)?;
+                fs::write(steam_cfg_path, new_config)?;
             }
             TagKind::Wine { .. } => {
-                let path = self.path_config.lutris_wine_runner_config(xdg_config_home());
-                fs::copy(
-                    &path,
-                    self.path_config
-                        .app_config_backup_file(xdg_config_home(), version.kind()),
-                )?;
+                let runner_cfg_path = self.path_config.lutris_wine_runner_config(xdg_config_home());
+                let backup_path = self
+                    .path_config
+                    .app_config_backup_file(xdg_config_home(), version.kind());
 
-                let mut config = LutrisConfig::create_copy(&path)?;
-                config.set_wine_version(version.directory_name());
+                let copy_result = fs::copy(&runner_cfg_path, &backup_path);
 
-                let new_config: Vec<u8> = config.into();
-                fs::write(path, new_config)?;
+                if let Err(io_err) = copy_result {
+                    if let io::ErrorKind::NotFound = io_err.kind() {
+                        fs::write(
+                            runner_cfg_path,
+                            LUTRIS_INITIAL_WINE_RUNNER_CONFIG.replace("VERSION", version.directory_name()),
+                        )
+                        .context("Failed to create initial Wine runner configuration for Lutris")?;
+                    } else {
+                        return Err(anyhow!(io_err)).context(format!(
+                            r#"Could not create backup of Wine runner config from "{}" to "{}""#,
+                            runner_cfg_path.display(),
+                            backup_path.display()
+                        ));
+                    }
+                } else {
+                    let mut config = LutrisConfig::create_copy(&runner_cfg_path)?;
+                    config.set_wine_version(version.directory_name());
+
+                    let new_config: Vec<u8> = config.into();
+                    fs::write(runner_cfg_path, new_config)?;
+                };
             }
         }
 
@@ -202,7 +225,6 @@ mod tests {
 
     use assert_fs::prelude::{PathAssert, PathChild};
     use assert_fs::TempDir;
-
     use ge_man_lib::tag::Tag;
 
     use super::*;
@@ -545,7 +567,7 @@ mod tests {
     }
 
     #[test]
-    fn modify_config_with_proton_version() {
+    fn apply_proton_ge_version_to_steam_config() {
         let tmp_dir = TempDir::new().unwrap();
         let cfg_dir = tmp_dir.join(".local/share/Steam/config");
         let cfg_file = cfg_dir.join("config.vdf");
@@ -578,7 +600,7 @@ mod tests {
     }
 
     #[test]
-    fn modify_config_with_wine_version() {
+    fn apply_wine_ge_version_to_lutris_config_when_runner_config_already_exists() {
         let tmp_dir = TempDir::new().unwrap();
         let cfg_dir = tmp_dir.join(".config/lutris/runners");
         let cfg_file = cfg_dir.join("wine.yml");
@@ -605,6 +627,38 @@ mod tests {
         tmp_dir
             .child(path_cfg.app_config_backup_file(None, &TagKind::wine()))
             .assert(predicates::path::exists());
+
+        drop(fs_mng);
+        tmp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn apply_wine_ge_version_to_lutris_config_when_no_runner_config_exists() {
+        let tmp_dir = TempDir::new().unwrap();
+        let cfg_dir = tmp_dir.join(".config/lutris/runners");
+        let cfg_file = cfg_dir.join("wine.yml");
+        let dir_name = "Wine-6.21-GE-1";
+        fs::create_dir_all(&cfg_dir).unwrap();
+
+        let path_cfg = MockPathConfig::new(PathBuf::from(tmp_dir.path()));
+        fs::create_dir_all(
+            path_cfg
+                .app_config_backup_file(None, &TagKind::wine())
+                .parent()
+                .unwrap(),
+        )
+        .unwrap();
+        let fs_mng = FsMng::new(&path_cfg);
+
+        let version = ManagedVersion::new("6.21-GE-1", TagKind::wine(), dir_name);
+        fs_mng.apply_to_app_config(&version).unwrap();
+
+        let modified_config = LutrisConfig::create_copy(&cfg_file).unwrap();
+        assert_eq!(modified_config.wine_version(), dir_name);
+
+        tmp_dir
+            .child(path_cfg.app_config_backup_file(None, &TagKind::wine()))
+            .assert(predicates::path::missing());
 
         drop(fs_mng);
         tmp_dir.close().unwrap();
