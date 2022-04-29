@@ -20,6 +20,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 * Create global Wine runner config `XDG_CONFIG_HOME/lutris/runners/wine.yml` for Lutris if not present.
 * Use `.steam` folder in user home directory for Steam path operations. Steam is not installed under the XDG
   standard on all distributions.
+* Do not download the latest version when that version is already managed by GE-Man. This effects `add` commands
+  with no specific tag version provided.
 
 ## [0.1.0] - 2022-03-27
 

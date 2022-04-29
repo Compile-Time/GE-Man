@@ -16,7 +16,7 @@ use crate::data::{ManagedVersion, ManagedVersions};
 use crate::filesystem::FilesystemManager;
 use crate::path::{xdg_data_home, AppConfigPaths, PathConfiguration};
 use crate::progress::{DownloadProgressTracker, ExtractionProgressTracker};
-use crate::version::Version;
+use crate::version::{Version, Versioned};
 
 trait AppConfig {
     fn version_dir_name(&self) -> String;
@@ -164,16 +164,29 @@ impl<'a> TerminalWriter<'a> {
         let kind = args.tag_arg.kind;
         let mut managed_versions = self.read_managed_versions()?;
 
-        if tag.is_some() {
-            let version = Version::new(tag.cloned(), kind);
-            if managed_versions.find_version(&version).is_some() {
-                writeln!(stdout, "Given version is already managed")?;
-                return Ok(());
+        let version = if tag.is_some() {
+            Version::new(tag.cloned(), kind)
+        } else {
+            match self.ge_downloader.fetch_release(tag.cloned(), kind) {
+                Ok(release) => Version::new(release.tag_name, kind),
+                Err(err) => {
+                    return Err(anyhow!(err).context(r#"Could not get latest tag for tagless "add" operation."#))
+                }
             }
+        };
+
+        if managed_versions.find_version(&version).is_some() {
+            writeln!(stdout, "Version {} is already managed", version)?;
+            return Ok(());
         }
 
         let download_tracker = Box::new(DownloadProgressTracker::default());
-        let request = DownloadRequest::new(tag.cloned(), kind, download_tracker, args.skip_checksum);
+        let request = DownloadRequest::new(
+            Some(version.tag().to_string()),
+            *version.kind(),
+            download_tracker,
+            args.skip_checksum,
+        );
 
         let assets = match self.ge_downloader.download_release_assets(request) {
             Ok(assets) => assets,
@@ -195,9 +208,9 @@ impl<'a> TerminalWriter<'a> {
         };
 
         let DownloadedAssets {
-            tag,
             compressed_archive: compressed_tar,
             checksum,
+            ..
         } = assets;
 
         if args.skip_checksum {
@@ -220,7 +233,6 @@ impl<'a> TerminalWriter<'a> {
             .inner()
             .wrap_read(std::io::Cursor::new(compressed_tar.compressed_content));
 
-        let version = Version::new(tag, kind);
         let version = self
             .fs_mng
             .setup_version(version, Box::new(compressed_tar_reader))
@@ -864,7 +876,7 @@ mod tests {
     }
 
     #[test]
-    fn add_existing_version_again_expect_error_msg() {
+    fn add_specific_version_which_is_already_managed_again_expect_message_about_already_being_managed() {
         let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
         let args = AddArgs::new(tag_arg, false, false);
 
@@ -887,7 +899,39 @@ mod tests {
         let mut stdout = AssertLines::new();
         let result = writer.add(&mut stdout, args);
         assert!(result.is_ok());
-        stdout.assert_line(0, "Given version is already managed");
+        stdout.assert_line(0, "Version 6.20-GE-1 (Proton) is already managed");
+    }
+
+    #[test]
+    fn add_latest_version_which_is_already_managed_again_expect_message_about_already_being_managed() {
+        let tag_arg = TagArg::new(None, TagKind::Proton);
+        let args = AddArgs::new(tag_arg, false, false);
+
+        let mut fs_mng = MockFilesystemManager::new();
+        fs_mng.expect_setup_version().never();
+
+        let tmp_dir = TempDir::new().unwrap();
+        let json_path = tmp_dir.join("ge_man/managed_versions.json");
+        setup_managed_versions(&json_path, vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")]);
+
+        let mut path_cfg = MockPathConfiguration::new();
+        path_cfg
+            .expect_managed_versions_config()
+            .once()
+            .returning(move |_| json_path.clone());
+
+        let mut ge_downloader = MockDownloader::new();
+        ge_downloader
+            .expect_fetch_release()
+            .once()
+            .returning(move |_, _| Ok(GeRelease::new(String::from("6.20-GE-1"), Vec::new())));
+
+        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+
+        let mut stdout = AssertLines::new();
+        let result = writer.add(&mut stdout, args);
+        assert!(result.is_ok());
+        stdout.assert_line(0, "Version 6.20-GE-1 (Proton) is already managed");
     }
 
     #[test]
