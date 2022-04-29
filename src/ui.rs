@@ -3,8 +3,8 @@ use std::io::Write;
 use anyhow::{anyhow, bail, Context};
 use ge_man_lib::archive;
 use ge_man_lib::config::{LutrisConfig, SteamConfig};
-use ge_man_lib::download::{DownloadRequest, GeDownload};
 use ge_man_lib::download::response::DownloadedAssets;
+use ge_man_lib::download::{DownloadRequest, GeDownload};
 use ge_man_lib::error::{GithubError, LutrisConfigError, SteamConfigError};
 use ge_man_lib::tag::TagKind;
 use itertools::Itertools;
@@ -14,7 +14,7 @@ use crate::args::{
 };
 use crate::data::{ManagedVersion, ManagedVersions};
 use crate::filesystem::FilesystemManager;
-use crate::path::{AppConfigPaths, PathConfiguration, xdg_data_home};
+use crate::path::{xdg_data_home, AppConfigPaths, PathConfiguration};
 use crate::progress::{DownloadProgressTracker, ExtractionProgressTracker};
 use crate::version::Version;
 
@@ -83,16 +83,16 @@ impl<'a> TerminalWriter<'a> {
     fn create_list_line(
         &self,
         version: ManagedVersion,
-        lutris_dir: Option<&String>,
-        steam_dir: Option<&String>,
+        wine_version_dir_name: Option<&String>,
+        proton_version_dir_name: Option<&String>,
     ) -> String {
-        if let Some(dir) = lutris_dir {
+        if let Some(dir) = wine_version_dir_name {
             if dir.eq(version.directory_name()) {
                 return format!("{} - In use by Lutris", version.tag());
             }
         }
 
-        if let Some(dir) = steam_dir {
+        if let Some(dir) = proton_version_dir_name {
             if dir.eq(version.directory_name()) {
                 return format!("{} - In use by Steam", version.tag());
             }
@@ -136,7 +136,7 @@ impl<'a> TerminalWriter<'a> {
         if !managed_versions.is_empty() {
             // Allow clone of version.kind() due to lifetime not living long enough.
             #[allow(clippy::clone_on_copy)]
-                let grouped_versions = managed_versions
+            let grouped_versions = managed_versions
                 .into_iter()
                 .sorted_unstable_by(|a, b| a.kind().cmp(b.kind()))
                 .group_by(|version| version.kind().clone());
@@ -144,7 +144,8 @@ impl<'a> TerminalWriter<'a> {
             for (kind, group) in &grouped_versions {
                 writeln!(stdout, "{}:", kind.compatibility_tool_name()).unwrap();
 
-                group.sorted_unstable_by(|a, b| a.tag().cmp_semver(b.tag()).reverse())
+                group
+                    .sorted_unstable_by(|a, b| a.tag().cmp_semver(b.tag()).reverse())
                     .for_each(|version| {
                         let line = self.create_list_line(version, wine_dir_name.as_ref(), proton_dir_name.as_ref());
                         writeln!(stdout, "* {}", line).unwrap();
@@ -267,10 +268,12 @@ impl<'a> TerminalWriter<'a> {
                 match config {
                     Ok(config) => {
                         if self.check_if_version_in_use_by_config(&version, &config) {
-                            bail!("Wine version is in use by Lutris. Select a different version to make removal \
-                            possible.");
+                            bail!(
+                                "Wine version is in use by Lutris. Select a different version to make removal \
+                            possible."
+                            );
                         }
-                    },
+                    }
                     Err(err) => {
                         if let LutrisConfigError::IoError { source } = &err {
                             if source.raw_os_error().unwrap() != 2 {
@@ -291,8 +294,8 @@ impl<'a> TerminalWriter<'a> {
     }
 
     fn check_if_version_in_use_by_config<T>(&self, version: &ManagedVersion, app_config: &T) -> bool
-        where
-            T: AppConfig,
+    where
+        T: AppConfig,
     {
         app_config.version_dir_name().eq(version.directory_name())
     }
@@ -307,7 +310,7 @@ impl<'a> TerminalWriter<'a> {
                         kind.compatibility_tool_name(),
                         release.tag_name
                     )
-                        .unwrap();
+                    .unwrap();
                 }
                 Err(err) => {
                     writeln!(stderr, "Could not fetch latest release from Github: {}", err).unwrap();
@@ -327,7 +330,7 @@ impl<'a> TerminalWriter<'a> {
                         "Proton GE: Could not fetch release information from GitHub: {}",
                         err
                     )
-                        .unwrap(),
+                    .unwrap(),
                 }
 
                 match wine {
@@ -337,7 +340,7 @@ impl<'a> TerminalWriter<'a> {
                         "Wine GE: Could not fetch release information from GitHub: {}",
                         err
                     )
-                        .unwrap(),
+                    .unwrap(),
                 }
 
                 match lol {
@@ -347,7 +350,7 @@ impl<'a> TerminalWriter<'a> {
                         "Wine GE - LoL: Could not fetch release information from GitHub: {}",
                         err
                     )
-                        .unwrap(),
+                    .unwrap(),
                 }
             }
         }
@@ -375,19 +378,15 @@ impl<'a> TerminalWriter<'a> {
 
     fn do_apply_to_app_config(&self, stdout: &mut impl Write, version: &ManagedVersion) -> anyhow::Result<()> {
         let (modify_msg, success_msg) = match version.kind() {
-            TagKind::Proton => {
-                (
-                    format!("Modifying Steam configuration to use {}", version),
-                    "Successfully modified Steam config: If Steam is currently running, you need to select the \
-                    version in Steam. Otherwise, Steam will override the changes made by GE-Man."
-                )
-            }
-            TagKind::Wine { .. } => {
-                (
-                    format!("Modifying Lutris configuration to use {}", version),
-                    "Successfully modified Lutris config: Lutris should be restarted for the new settings to take effect."
-                )
-            }
+            TagKind::Proton => (
+                format!("Modifying Steam configuration to use {}", version),
+                "Successfully modified Steam config: If Steam is currently running, you need to select the \
+                    version in Steam. Otherwise, Steam will override the changes made by GE-Man.",
+            ),
+            TagKind::Wine { .. } => (
+                format!("Modifying Lutris configuration to use {}", version),
+                "Successfully modified Lutris config: Lutris should be restarted for the new settings to take effect.",
+            ),
         };
 
         writeln!(stdout, "{}", modify_msg).unwrap();
@@ -443,7 +442,7 @@ impl<'a> TerminalWriter<'a> {
             "Copied user_settings.py from {} to {}",
             src_version, dst_version
         )
-            .unwrap();
+        .unwrap();
         Ok(())
     }
 
@@ -462,8 +461,8 @@ impl<'a> TerminalWriter<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, io};
     use std::path::{Path, PathBuf};
+    use std::{fs, io};
 
     use anyhow::bail;
     use assert_fs::TempDir;

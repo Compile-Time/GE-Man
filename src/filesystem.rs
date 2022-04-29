@@ -60,9 +60,7 @@ impl<'a> FsMng<'a> {
 
     fn move_or_copy_directory(&self, version: &ManagedVersion, src_path: &Path) -> anyhow::Result<()> {
         let dst_path = match version.kind() {
-            TagKind::Proton => self
-                .path_config
-                .steam_compatibility_tools_dir(xdg_data_home(), steam_path()),
+            TagKind::Proton => self.path_config.steam_compatibility_tools_dir(steam_path()),
             TagKind::Wine { .. } => self.path_config.lutris_runners_dir(xdg_data_home()),
         };
         let dst_path = dst_path.join(version.directory_name());
@@ -93,9 +91,7 @@ impl<'a> FsMng<'a> {
 impl<'a> FilesystemManager for FsMng<'a> {
     fn setup_version(&self, version: Version, compressed_tar: Box<dyn Read>) -> anyhow::Result<ManagedVersion> {
         let dst_path = match version.kind() {
-            TagKind::Proton => self
-                .path_config
-                .steam_compatibility_tools_dir(xdg_data_home(), steam_path()),
+            TagKind::Proton => self.path_config.steam_compatibility_tools_dir(steam_path()),
             TagKind::Wine { .. } => self.path_config.lutris_runners_dir(xdg_data_home()),
         };
         let extracted_location = archive::extract_compressed(version.kind(), compressed_tar, &dst_path)
@@ -111,9 +107,7 @@ impl<'a> FilesystemManager for FsMng<'a> {
 
     fn remove_version(&self, version: &ManagedVersion) -> anyhow::Result<()> {
         let path = match version.kind() {
-            TagKind::Proton => self
-                .path_config
-                .steam_compatibility_tools_dir(xdg_data_home(), steam_path()),
+            TagKind::Proton => self.path_config.steam_compatibility_tools_dir(steam_path()),
             TagKind::Wine { .. } => self.path_config.lutris_runners_dir(xdg_data_home()),
         };
         let path = path.join(version.directory_name());
@@ -145,7 +139,7 @@ impl<'a> FilesystemManager for FsMng<'a> {
     fn apply_to_app_config(&self, version: &ManagedVersion) -> anyhow::Result<()> {
         match version.kind() {
             TagKind::Proton => {
-                let steam_cfg_path = self.path_config.steam_config(xdg_data_home(), steam_path());
+                let steam_cfg_path = self.path_config.steam_config(steam_path());
                 let backup_path = self
                     .path_config
                     .app_config_backup_file(xdg_config_home(), version.kind());
@@ -200,12 +194,12 @@ impl<'a> FilesystemManager for FsMng<'a> {
     fn copy_user_settings(&self, src_version: &ManagedVersion, dst_version: &ManagedVersion) -> anyhow::Result<()> {
         let src_path = self
             .path_config
-            .steam_compatibility_tools_dir(xdg_data_home(), steam_path())
+            .steam_compatibility_tools_dir(steam_path())
             .join(src_version.directory_name())
             .join(USER_SETTINGS_PY);
         let dst_path = self
             .path_config
-            .steam_compatibility_tools_dir(xdg_data_home(), steam_path())
+            .steam_compatibility_tools_dir(steam_path())
             .join(dst_version.directory_name())
             .join(USER_SETTINGS_PY);
 
@@ -247,6 +241,10 @@ mod tests {
         fn xdg_config_dir(&self, _xdg_config_path: Option<String>) -> PathBuf {
             self.tmp_dir.join(".config")
         }
+
+        fn steam(&self, _steam_root_path_override: Option<String>) -> PathBuf {
+            self.tmp_dir.join(".steam/root")
+        }
     }
 
     #[test]
@@ -257,7 +255,7 @@ mod tests {
 
         let tmp_dir = TempDir::new().unwrap();
         let path_config = MockPathConfig::new(PathBuf::from(tmp_dir.path()));
-        fs::create_dir_all(path_config.steam_compatibility_tools_dir(None, None)).unwrap();
+        fs::create_dir_all(path_config.steam_compatibility_tools_dir(None)).unwrap();
 
         let fs_manager = FsMng::new(&path_config);
 
@@ -269,7 +267,7 @@ mod tests {
         assert_eq!(managed_version.kind(), &kind);
         assert_eq!(managed_version.directory_name(), &dir_name);
         tmp_dir
-            .child(".local/share/Steam/compatibilitytools.d")
+            .child(".steam/root/compatibilitytools.d")
             .child(&dir_name)
             .assert(predicates::path::exists());
 
@@ -341,7 +339,7 @@ mod tests {
 
         let tmp_dir = TempDir::new().unwrap();
         let path_config = MockPathConfig::new(PathBuf::from(tmp_dir.path()));
-        std::fs::create_dir_all(path_config.steam_compatibility_tools_dir(None, None).join(&dir_name)).unwrap();
+        std::fs::create_dir_all(path_config.steam_compatibility_tools_dir(None).join(&dir_name)).unwrap();
 
         let fs_manager = FsMng::new(&path_config);
 
@@ -437,7 +435,7 @@ mod tests {
         let source_path = PathBuf::from(tmp_dir.join("some/dir/Proton-6.20-GE-1"));
         let version = Version::new("6.20-GE-1", TagKind::Proton);
         fs::create_dir_all(&source_path).unwrap();
-        fs::create_dir_all(tmp_dir.join(".local/share/Steam/compatibilitytools.d")).unwrap();
+        fs::create_dir_all(tmp_dir.join(".steam/root/compatibilitytools.d")).unwrap();
 
         let path_cfg = MockPathConfig::new(PathBuf::from(tmp_dir.path()));
         let fs_mng = FsMng::new(&path_cfg);
@@ -448,10 +446,10 @@ mod tests {
         assert_eq!(version.directory_name(), &String::from("GEH_PROTON_6.20-GE-1"));
 
         tmp_dir
-            .child(".local/share/Steam/compatibilitytools.d/Proton-6.20-GE-1")
+            .child(".steam/root/compatibilitytools.d/Proton-6.20-GE-1")
             .assert(predicates::path::missing());
         tmp_dir
-            .child(".local/share/Steam/compatibilitytools.d/GEH_PROTON_6.20-GE-1")
+            .child(".steam/root/compatibilitytools.d/GEH_PROTON_6.20-GE-1")
             .assert(predicates::path::exists());
 
         drop(fs_mng);
@@ -569,11 +567,11 @@ mod tests {
     #[test]
     fn apply_proton_ge_version_to_steam_config() {
         let tmp_dir = TempDir::new().unwrap();
-        let cfg_dir = tmp_dir.join(".local/share/Steam/config");
-        let cfg_file = cfg_dir.join("config.vdf");
-        let dir_name = "Proton-6.20-GE-1";
-        fs::create_dir_all(&cfg_dir).unwrap();
-        fs::copy("test_resources/assets/config.vdf", &cfg_file).unwrap();
+        let steam_cfg_dir = tmp_dir.join(".steam/root/config");
+        let steam_cfg_file = steam_cfg_dir.join("config.vdf");
+        let proton_dir_name = "Proton-6.20-GE-1";
+        fs::create_dir_all(&steam_cfg_dir).unwrap();
+        fs::copy("test_resources/assets/config.vdf", &steam_cfg_file).unwrap();
 
         let path_cfg = MockPathConfig::new(PathBuf::from(tmp_dir.path()));
         fs::create_dir_all(
@@ -585,11 +583,11 @@ mod tests {
         .unwrap();
         let fs_mng = FsMng::new(&path_cfg);
 
-        let version = ManagedVersion::new("6.20-GE-1", TagKind::Proton, dir_name);
+        let version = ManagedVersion::new("6.20-GE-1", TagKind::Proton, proton_dir_name);
         fs_mng.apply_to_app_config(&version).unwrap();
 
-        let modified_config = SteamConfig::create_copy(&cfg_file).unwrap();
-        assert_eq!(modified_config.proton_version(), dir_name);
+        let modified_config = SteamConfig::create_copy(&steam_cfg_file).unwrap();
+        assert_eq!(modified_config.proton_version(), proton_dir_name);
 
         tmp_dir
             .child(path_cfg.app_config_backup_file(None, &TagKind::Proton))
@@ -667,8 +665,8 @@ mod tests {
     #[test]
     fn copy_proton_settings() {
         let tmp_dir = TempDir::new().unwrap();
-        fs::create_dir_all(tmp_dir.join(".local/share/Steam/compatibilitytools.d")).unwrap();
-        fs::create_dir_all(tmp_dir.join(".local/share/Steam/config")).unwrap();
+        fs::create_dir_all(tmp_dir.join(".steam/root/compatibilitytools.d")).unwrap();
+        fs::create_dir_all(tmp_dir.join(".steam/root/config")).unwrap();
 
         let path_cfg = MockPathConfig::new(PathBuf::from(tmp_dir.path()));
         let fs_mng = FsMng::new(&path_cfg);
@@ -682,26 +680,26 @@ mod tests {
         let dst = fs_mng.setup_version(dst, Box::new(dst_tar)).unwrap();
 
         tmp_dir
-            .child(".local/share/Steam/compatibilitytools.d/Proton-6.19-GE-1")
+            .child(".steam/root/compatibilitytools.d/Proton-6.19-GE-1")
             .assert(predicates::path::exists());
         tmp_dir
-            .child(".local/share/Steam/compatibilitytools.d/Proton-6.20-GE-2")
+            .child(".steam/root/compatibilitytools.d/Proton-6.20-GE-2")
             .assert(predicates::path::exists());
 
         fs::copy(
-            tmp_dir.join(".local/share/Steam/compatibilitytools.d/Proton-6.19-GE-1/hello-world.txt"),
-            tmp_dir.join(".local/share/Steam/compatibilitytools.d/Proton-6.19-GE-1/user_settings.py"),
+            tmp_dir.join(".steam/root/compatibilitytools.d/Proton-6.19-GE-1/hello-world.txt"),
+            tmp_dir.join(".steam/root/compatibilitytools.d/Proton-6.19-GE-1/user_settings.py"),
         )
         .unwrap();
 
         tmp_dir
-            .child(".local/share/Steam/compatibilitytools.d/Proton-6.19-GE-1/user_settings.py")
+            .child(".steam/root/compatibilitytools.d/Proton-6.19-GE-1/user_settings.py")
             .assert(predicates::path::exists());
 
         fs_mng.copy_user_settings(&src, &dst).unwrap();
 
         tmp_dir
-            .child(".local/share/Steam/compatibilitytools.d/Proton-6.20-GE-2/user_settings.py")
+            .child(".steam/root/compatibilitytools.d/Proton-6.20-GE-2/user_settings.py")
             .assert(predicates::path::exists());
 
         tmp_dir.close().unwrap();

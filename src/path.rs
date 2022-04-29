@@ -46,10 +46,16 @@ pub trait PathConfiguration {
         PathBuf::from(config_dir)
     }
 
-    fn steam(&self, xdg_data_home: Option<String>, steam_path: Option<String>) -> PathBuf {
-        steam_path
+    fn steam(&self, steam_root_path_override: Option<String>) -> PathBuf {
+        let steam_root_symlink = env::var(HOME)
+            .ok()
+            .map(|home| format!("{}/.steam/root", home))
             .map(PathBuf::from)
-            .unwrap_or_else(|| self.xdg_data_dir(xdg_data_home).join("Steam"))
+            .unwrap();
+
+        steam_root_path_override
+            .map(PathBuf::from)
+            .unwrap_or_else(|| steam_root_symlink)
     }
 
     fn lutris_local(&self, xdg_data_home: Option<String>) -> PathBuf {
@@ -60,12 +66,12 @@ pub trait PathConfiguration {
         self.xdg_config_dir(xdg_config_home).join("lutris")
     }
 
-    fn steam_config(&self, xdg_data_home: Option<String>, steam_path: Option<String>) -> PathBuf {
-        self.steam(xdg_data_home, steam_path).join("config/config.vdf")
+    fn steam_config(&self, steam_root_path_override: Option<String>) -> PathBuf {
+        self.steam(steam_root_path_override).join("config/config.vdf")
     }
 
-    fn steam_compatibility_tools_dir(&self, xdg_data_home: Option<String>, steam_path: Option<String>) -> PathBuf {
-        self.steam(xdg_data_home, steam_path).join("compatibilitytools.d")
+    fn steam_compatibility_tools_dir(&self, steam_root_path_override: Option<String>) -> PathBuf {
+        self.steam(steam_root_path_override).join("compatibilitytools.d")
     }
 
     fn lutris_runners_config_dir(&self, xdg_config_home: Option<String>) -> PathBuf {
@@ -122,7 +128,7 @@ pub trait PathConfiguration {
         xdg_data_home: Option<String>,
         steam_path: Option<String>,
     ) -> anyhow::Result<()> {
-        let steam_compat_dir = self.steam_compatibility_tools_dir(xdg_data_home.clone(), steam_path);
+        let steam_compat_dir = self.steam_compatibility_tools_dir(steam_path);
         let lutris_runners_cfg_dir = self.lutris_runners_config_dir(xdg_config_home);
         let lutris_runners_dir = self.lutris_runners_dir(xdg_data_home);
 
@@ -160,7 +166,7 @@ impl AppConfigPaths {
 impl<T: PathConfiguration> From<&T> for AppConfigPaths {
     fn from(path_cfg: &T) -> Self {
         AppConfigPaths::new(
-            path_cfg.steam_config(xdg_data_home(), steam_path()),
+            path_cfg.steam_config(steam_path()),
             path_cfg.lutris_wine_runner_config(xdg_config_home()),
         )
     }
@@ -210,24 +216,16 @@ mod tests {
     #[test]
     fn steam_path_with_no_overrides() {
         let path_cfg = PathConfig::default();
-        let path = path_cfg.steam(None, None);
+        let path = path_cfg.steam(None);
 
         assert!(path.to_string_lossy().contains("home"));
-        assert!(path.to_string_lossy().contains(".local/share/Steam"));
-    }
-
-    #[test]
-    fn steam_path_with_xdg_data_override() {
-        let path_cfg = PathConfig::default();
-        let path = path_cfg.steam(Some(String::from("/tmp/xdg-data")), None);
-
-        assert_eq!(path, PathBuf::from("/tmp/xdg-data/Steam"));
+        assert!(path.to_string_lossy().contains(".steam/root"));
     }
 
     #[test]
     fn steam_path_with_steam_override() {
         let path_cfg = PathConfig::default();
-        let path = path_cfg.steam(None, Some(String::from("/tmp/steam")));
+        let path = path_cfg.steam(Some(String::from("/tmp/steam")));
 
         assert_eq!(path, PathBuf::from("/tmp/steam"));
     }
@@ -269,53 +267,35 @@ mod tests {
     #[test]
     fn steam_config_with_no_overrides() {
         let path_cfg = PathConfig::default();
-        let path = path_cfg.steam_config(None, None);
+        let path = path_cfg.steam_config(None);
 
         assert!(path.to_string_lossy().contains("home"));
-        assert!(path.to_string_lossy().contains(".local/share/Steam/config/config.vdf"));
+        assert!(path.to_string_lossy().contains(".steam/root/config/config.vdf"));
     }
 
     #[test]
     fn steam_config_with_steam_override() {
         let path_cfg = PathConfig::default();
-        let path = path_cfg.steam_config(None, Some(String::from("/tmp/steam")));
+        let path = path_cfg.steam_config(Some(String::from("/tmp/steam")));
 
         assert_eq!(path, PathBuf::from("/tmp/steam/config/config.vdf"));
     }
 
     #[test]
-    fn steam_config_with_xdg_data_override() {
-        let path_cfg = PathConfig::default();
-        let path = path_cfg.steam_config(Some(String::from("/tmp/xdg-data")), None);
-
-        assert_eq!(path, PathBuf::from("/tmp/xdg-data/Steam/config/config.vdf"));
-    }
-
-    #[test]
     fn steam_compatibilitytools_with_no_overrides() {
         let path_cfg = PathConfig::default();
-        let path = path_cfg.steam_compatibility_tools_dir(None, None);
+        let path = path_cfg.steam_compatibility_tools_dir(None);
 
         assert!(path.to_string_lossy().contains("home"));
-        assert!(path
-            .to_string_lossy()
-            .contains(".local/share/Steam/compatibilitytools.d"));
+        assert!(path.to_string_lossy().contains(".steam/root/compatibilitytools.d"));
     }
 
     #[test]
     fn steam_compatibilitytools_with_steam_override() {
         let path_cfg = PathConfig::default();
-        let path = path_cfg.steam_compatibility_tools_dir(None, Some(String::from("/tmp/steam")));
+        let path = path_cfg.steam_compatibility_tools_dir(Some(String::from("/tmp/steam")));
 
         assert_eq!(path, PathBuf::from("/tmp/steam/compatibilitytools.d"));
-    }
-
-    #[test]
-    fn steam_compatibilitytools_with_xdg_data_override() {
-        let path_cfg = PathConfig::default();
-        let path = path_cfg.steam_compatibility_tools_dir(Some(String::from("/tmp/xdg-data")), None);
-
-        assert_eq!(path, PathBuf::from("/tmp/xdg-data/Steam/compatibilitytools.d"));
     }
 
     #[test]
