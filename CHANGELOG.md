@@ -7,6 +7,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Fixed
+
+* Create required Steam or Lutris directories if missing. This effects the following directories:
+    * `XDG_DATA_HOME/Steam/compatibilitytools.d`
+    * `XDG_DATA_HOME/lutris/runners/wine`
+    * `XDG_CONFIG_HOME/lutris/runners`
+* Create global Wine runner config `XDG_CONFIG_HOME/lutris/runners/wine.yml` for Lutris if not present.
+
 ## [0.1.0] - 2022-03-27
 
 ### Added
