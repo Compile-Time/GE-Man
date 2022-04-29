@@ -167,7 +167,8 @@ impl<'a> TerminalWriter<'a> {
         if tag.is_some() {
             let version = Version::new(tag.cloned(), kind);
             if managed_versions.find_version(&version).is_some() {
-                bail!("Given version is already managed");
+                writeln!(stdout, "Given version is already managed")?;
+                return Ok(());
             }
         }
 
@@ -885,11 +886,8 @@ mod tests {
 
         let mut stdout = AssertLines::new();
         let result = writer.add(&mut stdout, args);
-        assert!(result.is_err());
-
-        let err = result.unwrap_err();
-        assert_eq!(err.to_string(), "Given version is already managed");
-        stdout.assert_empty();
+        assert!(result.is_ok());
+        stdout.assert_line(0, "Given version is already managed");
     }
 
     #[test]
