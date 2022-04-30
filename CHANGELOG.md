@@ -10,6 +10,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 * Don't treat adding the same version as an error for the `add` command.
+* Update Proton apply hint for `--apply` argument and `apply` command to be more accurate/helpful.
 
 ### Fixed
 

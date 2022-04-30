@@ -18,6 +18,13 @@ use crate::path::{xdg_data_home, AppConfigPaths, PathConfiguration};
 use crate::progress::{DownloadProgressTracker, ExtractionProgressTracker};
 use crate::version::{Version, Versioned};
 
+const PROTON_APPLY_HINT: &str = "Successfully modified Steam config: If Steam is currently running, \
+any external change by GE-Man will not take effect and the new version can not be selected in the Steam settings!
+ 
+ To select the latest version you have two options:
+ \t1. Restart Steam to select the new version in Steam (which then requires a second restart for Steam to register the change).
+ \t2. Close Steam and run the apply command for your desired version. On the next start Steam will use the applied version.";
+
 trait AppConfig {
     fn version_dir_name(&self) -> String;
     fn kind(&self) -> String;
@@ -393,8 +400,7 @@ impl<'a> TerminalWriter<'a> {
         let (modify_msg, success_msg) = match version.kind() {
             TagKind::Proton => (
                 format!("Modifying Steam configuration to use {}", version),
-                "Successfully modified Steam config: If Steam is currently running, you need to select the \
-                    version in Steam. Otherwise, Steam will override the changes made by GE-Man.",
+                PROTON_APPLY_HINT,
             ),
             TagKind::Wine { .. } => (
                 format!("Modifying Lutris configuration to use {}", version),
@@ -982,11 +988,7 @@ mod tests {
         stdout.assert_line(0, "Performing checksum comparison: Checksums match");
         stdout.assert_line(1, "Successfully added version");
         stdout.assert_line(2, "Modifying Steam configuration to use 6.20-GE-1 (Proton)");
-        stdout.assert_line(
-            3,
-            "Successfully modified Steam config: If Steam is currently running, you need to select the \
-                    version in Steam. Otherwise, Steam will override the changes made by GE-Man.",
-        );
+        stdout.assert_line(3, PROTON_APPLY_HINT);
     }
 
     #[test]
@@ -1336,11 +1338,7 @@ mod tests {
         writer.apply_to_app_config(&mut stdout, args).unwrap();
 
         stdout.assert_line(0, "Modifying Steam configuration to use 6.20-GE-1 (Proton)");
-        stdout.assert_line(
-            1,
-            "Successfully modified Steam config: If Steam is currently running, you need to select the \
-                    version in Steam. Otherwise, Steam will override the changes made by GE-Man.",
-        );
+        stdout.assert_line(1, PROTON_APPLY_HINT);
     }
 
     #[test]
@@ -1371,11 +1369,7 @@ mod tests {
         writer.apply_to_app_config(&mut stdout, args).unwrap();
 
         stdout.assert_line(0, "Modifying Steam configuration to use 6.20-GE-1 (Proton)");
-        stdout.assert_line(
-            1,
-            "Successfully modified Steam config: If Steam is currently running, you need to select the \
-                    version in Steam. Otherwise, Steam will override the changes made by GE-Man.",
-        );
+        stdout.assert_line(1, PROTON_APPLY_HINT);
     }
 
     #[test]
