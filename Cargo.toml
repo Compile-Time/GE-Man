@@ -1,6 +1,6 @@
 [package]
 name = "ge-man"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 keywords = ["GloriousEgroll", "Steam", "Lutris", "GE-Proton", "Wine-GE"]
 categories = ["command-line-utilities"]
@@ -8,6 +8,10 @@ license = "MIT OR Apache-2.0"
 readme = "README.md"
 description = "A manager for GE Proton and Wine GE versions."
 repository = "https://github.com/Compile-Time/GE-Man"
+include = [
+    "**/*.rs",
+    "Cargo.toml"
+]
 
 [[bin]]
 name = "geman"

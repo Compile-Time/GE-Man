@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## [0.1.1] - 2022-04-30
+
 ### Changed
 
 * Don't treat adding the same version as an error for the `add` command.
