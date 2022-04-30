@@ -7,7 +7,7 @@ if [ -d release ]; then
   rm -r "$RELEASE_DIR"
 fi
 mkdir "$RELEASE_DIR"
-cargo build --release --target "$TARGET"
+cargo build --release --target "$TARGET" --features vendored-openssl
 
 VERSION="$(grep -Eo '[0-9]\.[0-9]\.[0-9]' Cargo.toml | head -n 1)"
 BINARY="geman-$VERSION-$TARGET"
