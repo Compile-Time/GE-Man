@@ -24,12 +24,6 @@ And these features are planned:
   * Apply a user-settings.py file to a version
   * Add a user-settings.py file to GE-Man to make it applicable
 
-GE-Man consists of two Rust workspaces:
-
-* A binary crate providing the application
-* A library crate containing common functionality to deal with downloading GE versions, providing tag information and
-  extracting downloaded archives.
-
 # Building
 
 This project is build by using [Cargo](https://doc.rust-lang.org/cargo/) - Rust's package manager.
