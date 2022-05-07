@@ -714,8 +714,10 @@ dependencies = [
  "lazy_static",
  "mockall",
  "predicates",
+ "regex",
  "serde",
  "serde_json",
+ "serde_yaml",
  "test-case",
 ]
 

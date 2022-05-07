@@ -13,7 +13,7 @@ use ge_man::clap::commands::{
 use ge_man::filesystem::FsMng;
 use ge_man::path::{AppConfigPaths, PathConfig, PathConfiguration};
 use ge_man::ui::TerminalWriter;
-use ge_man::{clap, path};
+use ge_man::{clap, config, path};
 
 fn main() -> anyhow::Result<()> {
     let matches = clap::setup_clap().get_matches();
@@ -22,16 +22,13 @@ fn main() -> anyhow::Result<()> {
     let mut err_handle = stderr.lock();
 
     let path_config = PathConfig::default();
-    if let Err(err) = path_config.create_ge_man_dirs(path::xdg_config_home(), path::xdg_data_home()) {
-        bail!("Failed to setup xdg directory structure: {:#}", err);
-    }
 
-    if let Err(err) = path_config.create_app_dirs(path::xdg_config_home(), path::xdg_data_home(), path::steam_path()) {
-        bail!(
-            "Failed to setup required directory paths for Steam and Lutris: {:#}",
-            err
-        );
-    }
+    config::GE_MAN_CONFIG
+        .lock()
+        .unwrap()
+        .read_config(&path_config.ge_man_config(None))?;
+
+    setup_directory_structure(&path_config)?;
 
     let compatibility_tool_downloader = GeDownloader::default();
     let fs_mng = FsMng::new(&path_config);
@@ -76,4 +73,19 @@ fn main() -> anyhow::Result<()> {
     err_handle.flush().unwrap();
 
     result
+}
+
+fn setup_directory_structure(path_config: &PathConfig) -> anyhow::Result<()> {
+    if let Err(err) = path_config.create_ge_man_dirs(path::xdg_config_home(), path::xdg_data_home()) {
+        bail!("Failed to setup xdg directory structure: {:#}", err);
+    }
+
+    if let Err(err) = path_config.create_app_dirs(path::xdg_config_home(), path::xdg_data_home(), path::steam_root()) {
+        bail!(
+            "Failed to setup required directory paths for Steam and Lutris: {:#}",
+            err
+        );
+    }
+
+    Ok(())
 }

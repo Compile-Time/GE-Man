@@ -48,7 +48,7 @@ impl ManagedVersion {
         self.kind = kind;
     }
 
-    pub fn directory_name(&self) -> &String {
+    pub fn directory_name(&self) -> &str {
         &self.directory_name
     }
 

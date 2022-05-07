@@ -11,9 +11,8 @@ use ge_man_lib::tag::TagKind;
 use mockall::{automock, predicate::*};
 
 use crate::data::ManagedVersion;
-use crate::path::{
-    steam_path, xdg_config_home, xdg_data_home, PathConfiguration, LUTRIS_WINE_RUNNERS_DIR, STEAM_COMP_DIR,
-};
+use crate::path;
+use crate::path::{PathConfiguration, LUTRIS_WINE_RUNNERS_DIR, STEAM_COMP_DIR};
 use crate::version::{Version, Versioned};
 
 const USER_SETTINGS_PY: &str = "user_settings.py";
@@ -60,8 +59,8 @@ impl<'a> FsMng<'a> {
 
     fn move_or_copy_directory(&self, version: &ManagedVersion, src_path: &Path) -> anyhow::Result<()> {
         let dst_path = match version.kind() {
-            TagKind::Proton => self.path_config.steam_compatibility_tools_dir(steam_path()),
-            TagKind::Wine { .. } => self.path_config.lutris_runners_dir(xdg_data_home()),
+            TagKind::Proton => self.path_config.steam_compatibility_tools_dir(path::steam_root()),
+            TagKind::Wine { .. } => self.path_config.lutris_runners_dir(path::xdg_data_home()),
         };
         let dst_path = dst_path.join(version.directory_name());
 
@@ -91,8 +90,8 @@ impl<'a> FsMng<'a> {
 impl<'a> FilesystemManager for FsMng<'a> {
     fn setup_version(&self, version: Version, compressed_tar: Box<dyn Read>) -> anyhow::Result<ManagedVersion> {
         let dst_path = match version.kind() {
-            TagKind::Proton => self.path_config.steam_compatibility_tools_dir(steam_path()),
-            TagKind::Wine { .. } => self.path_config.lutris_runners_dir(xdg_data_home()),
+            TagKind::Proton => self.path_config.steam_compatibility_tools_dir(path::steam_root()),
+            TagKind::Wine { .. } => self.path_config.lutris_runners_dir(path::xdg_data_home()),
         };
         let extracted_location = archive::extract_compressed(version.kind(), compressed_tar, &dst_path)
             .context("Failed to extract compressed archive")?;
@@ -107,8 +106,8 @@ impl<'a> FilesystemManager for FsMng<'a> {
 
     fn remove_version(&self, version: &ManagedVersion) -> anyhow::Result<()> {
         let path = match version.kind() {
-            TagKind::Proton => self.path_config.steam_compatibility_tools_dir(steam_path()),
-            TagKind::Wine { .. } => self.path_config.lutris_runners_dir(xdg_data_home()),
+            TagKind::Proton => self.path_config.steam_compatibility_tools_dir(path::steam_root()),
+            TagKind::Wine { .. } => self.path_config.lutris_runners_dir(path::xdg_data_home()),
         };
         let path = path.join(version.directory_name());
 
@@ -139,10 +138,10 @@ impl<'a> FilesystemManager for FsMng<'a> {
     fn apply_to_app_config(&self, version: &ManagedVersion) -> anyhow::Result<()> {
         match version.kind() {
             TagKind::Proton => {
-                let steam_cfg_path = self.path_config.steam_config(steam_path());
+                let steam_cfg_path = self.path_config.steam_config(path::steam_root());
                 let backup_path = self
                     .path_config
-                    .app_config_backup_file(xdg_config_home(), version.kind());
+                    .app_config_backup_file(path::xdg_config_home(), version.kind());
 
                 fs::copy(&steam_cfg_path, &backup_path).context(format!(
                     r#"Could not create backup of Steam config from "{}" to "{}" "#,
@@ -157,10 +156,10 @@ impl<'a> FilesystemManager for FsMng<'a> {
                 fs::write(steam_cfg_path, new_config)?;
             }
             TagKind::Wine { .. } => {
-                let runner_cfg_path = self.path_config.lutris_wine_runner_config(xdg_config_home());
+                let runner_cfg_path = self.path_config.lutris_wine_runner_config(path::xdg_config_home());
                 let backup_path = self
                     .path_config
-                    .app_config_backup_file(xdg_config_home(), version.kind());
+                    .app_config_backup_file(path::xdg_config_home(), version.kind());
 
                 let copy_result = fs::copy(&runner_cfg_path, &backup_path);
 
@@ -194,12 +193,12 @@ impl<'a> FilesystemManager for FsMng<'a> {
     fn copy_user_settings(&self, src_version: &ManagedVersion, dst_version: &ManagedVersion) -> anyhow::Result<()> {
         let src_path = self
             .path_config
-            .steam_compatibility_tools_dir(steam_path())
+            .steam_compatibility_tools_dir(path::steam_root())
             .join(src_version.directory_name())
             .join(USER_SETTINGS_PY);
         let dst_path = self
             .path_config
-            .steam_compatibility_tools_dir(steam_path())
+            .steam_compatibility_tools_dir(path::steam_root())
             .join(dst_version.directory_name())
             .join(USER_SETTINGS_PY);
 
@@ -234,15 +233,15 @@ mod tests {
     }
 
     impl PathConfiguration for MockPathConfig {
-        fn xdg_data_dir(&self, _xdg_data_path: Option<String>) -> PathBuf {
+        fn xdg_data_dir(&self, _xdg_data_path: Option<PathBuf>) -> PathBuf {
             self.tmp_dir.join(".local/share")
         }
 
-        fn xdg_config_dir(&self, _xdg_config_path: Option<String>) -> PathBuf {
+        fn xdg_config_dir(&self, _xdg_config_path: Option<PathBuf>) -> PathBuf {
             self.tmp_dir.join(".config")
         }
 
-        fn steam(&self, _steam_root_path_override: Option<String>) -> PathBuf {
+        fn steam(&self, _steam_root_path_override: Option<PathBuf>) -> PathBuf {
             self.tmp_dir.join(".steam/root")
         }
     }
@@ -265,7 +264,7 @@ mod tests {
 
         assert_eq!(managed_version.tag(), &Tag::from(tag));
         assert_eq!(managed_version.kind(), &kind);
-        assert_eq!(managed_version.directory_name(), &dir_name);
+        assert_eq!(managed_version.directory_name(), dir_name);
         tmp_dir
             .child(".steam/root/compatibilitytools.d")
             .child(&dir_name)
@@ -293,7 +292,7 @@ mod tests {
 
         assert_eq!(managed_version.tag(), &Tag::from(tag));
         assert_eq!(managed_version.kind(), &kind);
-        assert_eq!(managed_version.directory_name(), &dir_name);
+        assert_eq!(managed_version.directory_name(), dir_name);
         tmp_dir
             .child(".local/share/lutris/runners/wine")
             .child(&dir_name)
@@ -321,7 +320,7 @@ mod tests {
 
         assert_eq!(managed_version.tag(), &Tag::from(tag));
         assert_eq!(managed_version.kind(), &kind);
-        assert_eq!(managed_version.directory_name(), &dir_name);
+        assert_eq!(managed_version.directory_name(), dir_name);
         tmp_dir
             .child(".local/share/lutris/runners/wine")
             .child(&dir_name)
