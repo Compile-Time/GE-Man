@@ -14,7 +14,7 @@ use crate::args::{
 };
 use crate::data::{ManagedVersion, ManagedVersions};
 use crate::filesystem::FilesystemManager;
-use crate::path::{overrule, AppConfigPaths, PathConfiguration};
+use crate::path::{overrule, PathConfiguration};
 use crate::progress::{DownloadProgressTracker, ExtractionProgressTracker};
 use crate::version::{Version, Versioned};
 
@@ -121,13 +121,15 @@ impl<'a> TerminalWriter<'a> {
             .context(format!("Could not write managed_versions.json to {}", path.display()))
     }
 
-    pub fn list(&self, stdout: &mut impl Write, args: ListArgs, config_paths: AppConfigPaths) -> anyhow::Result<()> {
-        let wine_dir_name = match LutrisConfig::create_copy(&config_paths.lutris) {
+    pub fn list(&self, stdout: &mut impl Write, args: ListArgs) -> anyhow::Result<()> {
+        let lutris_path = self.path_cfg.lutris_wine_runner_config(overrule::xdg_config_home());
+        let wine_dir_name = match LutrisConfig::create_copy(&lutris_path) {
             Ok(config) => Some(config.wine_version()),
             Err(_) => None,
         };
 
-        let proton_dir_name = match SteamConfig::create_copy(&config_paths.steam) {
+        let steam_path = self.path_cfg.steam_config(overrule::steam_root());
+        let proton_dir_name = match SteamConfig::create_copy(&steam_path) {
             Ok(config) => Some(config.proton_version()),
             Err(_) => None,
         };
@@ -259,12 +261,7 @@ impl<'a> TerminalWriter<'a> {
         Ok(())
     }
 
-    pub fn remove(
-        &self,
-        stdout: &mut impl Write,
-        args: RemoveArgs,
-        config_paths: AppConfigPaths,
-    ) -> anyhow::Result<()> {
+    pub fn remove(&self, stdout: &mut impl Write, args: RemoveArgs) -> anyhow::Result<()> {
         let version = args.tag_arg.version();
         let mut managed_versions = self.read_managed_versions()?;
 
@@ -275,8 +272,8 @@ impl<'a> TerminalWriter<'a> {
 
         match &version.kind() {
             TagKind::Proton => {
-                let path = &config_paths.steam;
-                let config = SteamConfig::create_copy(path)
+                let path = self.path_cfg.steam_config(overrule::steam_root());
+                let config = SteamConfig::create_copy(&path)
                     .map_err(|err| anyhow!(err))
                     .context(format!("Failed to read Steam config: {}", path.display()))?;
 
@@ -285,8 +282,8 @@ impl<'a> TerminalWriter<'a> {
                 }
             }
             TagKind::Wine { .. } => {
-                let path = &config_paths.lutris;
-                let config = LutrisConfig::create_copy(path);
+                let path = self.path_cfg.lutris_wine_runner_config(overrule::xdg_config_home());
+                let config = LutrisConfig::create_copy(&path);
                 match config {
                     Ok(config) => {
                         if self.check_if_version_in_use_by_config(&version, &config) {
@@ -632,11 +629,21 @@ mod tests {
             .once()
             .returning(move |_| json_path.clone());
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let steam_path = PathBuf::from("test_resources/assets/config.vdf");
+        path_cfg
+            .expect_steam_config()
+            .once()
+            .returning(move |_| steam_path.clone());
 
-        let config_paths = AppConfigPaths::new("test_resources/assets/config.vdf", "test_resources/assets/wine.yml");
+        let lutris_path = PathBuf::from("test_resources/assets/wine.yml");
+        path_cfg
+            .expect_lutris_wine_runner_config()
+            .once()
+            .returning(move |_| lutris_path.clone());
+
+        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
         let mut stdout = AssertLines::new();
-        writer.list(&mut stdout, args, config_paths).unwrap();
+        writer.list(&mut stdout, args).unwrap();
 
         stdout.assert_line(0, "Proton GE:");
         stdout.assert_line(1, "* 6.20-GE-1");
@@ -672,11 +679,21 @@ mod tests {
             .once()
             .returning(move |_| json_path.clone());
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let steam_path = PathBuf::from("test_resources/assets/config.vdf");
+        path_cfg
+            .expect_steam_config()
+            .once()
+            .returning(move |_| steam_path.clone());
 
-        let config_paths = AppConfigPaths::new("test_resources/assets/config.vdf", "test_resources/assets/wine.yml");
+        let lutris_path = PathBuf::from("test_resources/assets/wine.yml");
+        path_cfg
+            .expect_lutris_wine_runner_config()
+            .once()
+            .returning(move |_| lutris_path.clone());
+
+        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
         let mut stdout = AssertLines::new();
-        writer.list(&mut stdout, args, config_paths).unwrap();
+        writer.list(&mut stdout, args).unwrap();
 
         stdout.assert_line(0, "Proton GE:");
         stdout.assert_line(1, "* 6.21-GE-2 - In use by Steam");
@@ -718,11 +735,21 @@ mod tests {
             .once()
             .returning(move |_| json_path.clone());
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let steam_path = PathBuf::from("test_resources/assets/config.vdf");
+        path_cfg
+            .expect_steam_config()
+            .once()
+            .returning(move |_| steam_path.clone());
 
+        let lutris_path = PathBuf::from("test_resources/assets/wine.yml");
+        path_cfg
+            .expect_lutris_wine_runner_config()
+            .once()
+            .returning(move |_| lutris_path.clone());
+
+        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
         let mut stdout = AssertLines::new();
-        let config_paths = AppConfigPaths::new("test_resources/assets/config.vdf", "test_resources/assets/wine.yml");
-        writer.list(&mut stdout, args, config_paths).unwrap();
+        writer.list(&mut stdout, args).unwrap();
 
         stdout.assert_line(0, "Proton GE:");
         stdout.assert_line(1, "* 6.20-GE-2");
@@ -770,11 +797,21 @@ mod tests {
             .once()
             .returning(move |_| json_path.clone());
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let steam_path = PathBuf::from("test_resources/assets/config.vdf");
+        path_cfg
+            .expect_steam_config()
+            .once()
+            .returning(move |_| steam_path.clone());
 
+        let lutris_path = PathBuf::from("test_resources/assets/wine.yml");
+        path_cfg
+            .expect_lutris_wine_runner_config()
+            .once()
+            .returning(move |_| lutris_path.clone());
+
+        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
         let mut stdout = AssertLines::new();
-        let config_paths = AppConfigPaths::new("test_resources/assets/config.vdf", "test_resources/assets/wine.yml");
-        writer.list(&mut stdout, args, config_paths).unwrap();
+        writer.list(&mut stdout, args).unwrap();
 
         stdout.assert_line(0, "Proton GE:");
         stdout.assert_line(1, "* 6.21-GE-2 - In use by Steam");
@@ -1012,11 +1049,12 @@ mod tests {
             .once()
             .returning(move |_| json_path.clone());
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        path_cfg.expect_steam_config().never();
 
+        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
         let mut stdout = AssertLines::new();
-        let config_paths = AppConfigPaths::new("invalid-path", "invalid-path");
-        let result = writer.remove(&mut stdout, args, config_paths);
+
+        let result = writer.remove(&mut stdout, args);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -1046,12 +1084,15 @@ mod tests {
             .times(2)
             .returning(move |_| json_path.clone());
 
+        let steam_path = PathBuf::from("test_resources/assets/config.vdf");
+        path_cfg
+            .expect_steam_config()
+            .once()
+            .returning(move |_| steam_path.clone());
+
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
         let mut stdout = AssertLines::new();
-
-        let config_path = PathBuf::from("test_resources/assets/config.vdf");
-        let config_paths = AppConfigPaths::new(config_path, PathBuf::from("ignored"));
-        writer.remove(&mut stdout, args, config_paths).unwrap();
+        writer.remove(&mut stdout, args).unwrap();
 
         stdout.assert_line(0, "Successfully removed version 6.20-GE-1 (Proton).")
     }
@@ -1082,12 +1123,16 @@ mod tests {
             .once()
             .returning(move |_| json_path.clone());
 
+        let steam_path = PathBuf::from("test_resources/assets/config.vdf");
+        path_cfg
+            .expect_steam_config()
+            .once()
+            .returning(move |_| steam_path.clone());
+
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
         let mut stdout = AssertLines::new();
 
-        let config_path = PathBuf::from("test_resources/assets/config.vdf");
-        let config_paths = AppConfigPaths::new(config_path, PathBuf::from("ignored"));
-        let result = writer.remove(&mut stdout, args, config_paths);
+        let result = writer.remove(&mut stdout, args);
         assert!(result.is_err());
 
         let err = result.unwrap_err();

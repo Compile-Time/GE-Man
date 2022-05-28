@@ -11,7 +11,7 @@ use ge_man::clap::commands::{
     ADD, APPLY, CHECK, FORGET, LIST, MIGRATE, PROTON_USER_SETTINGS, REMOVE, USER_SETTINGS_COPY,
 };
 use ge_man::filesystem::FsMng;
-use ge_man::path::{overrule, AppConfigPaths, PathConfig, PathConfiguration};
+use ge_man::path::{overrule, PathConfig, PathConfiguration};
 use ge_man::ui::TerminalWriter;
 use ge_man::{clap, config};
 
@@ -38,17 +38,9 @@ fn main() -> anyhow::Result<()> {
 
     let output_writer = TerminalWriter::new(&compatibility_tool_downloader, &fs_mng, &path_config);
     let result = match matches.subcommand_name() {
-        Some(LIST) => output_writer.list(
-            &mut out_handle,
-            ListArgs::from(matches),
-            AppConfigPaths::from(&path_config),
-        ),
+        Some(LIST) => output_writer.list(&mut out_handle, ListArgs::from(matches)),
         Some(ADD) => output_writer.add(&mut out_handle, AddArgs::from(matches)),
-        Some(REMOVE) => output_writer.remove(
-            &mut out_handle,
-            RemoveArgs::from(matches),
-            AppConfigPaths::from(&path_config),
-        ),
+        Some(REMOVE) => output_writer.remove(&mut out_handle, RemoveArgs::from(matches)),
         Some(CHECK) => {
             output_writer.check(&mut out_handle, &mut err_handle, CheckArgs::from(matches));
             Ok(())

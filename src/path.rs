@@ -169,29 +169,6 @@ pub trait PathConfiguration {
     }
 }
 
-pub struct AppConfigPaths {
-    pub steam: PathBuf,
-    pub lutris: PathBuf,
-}
-
-impl AppConfigPaths {
-    pub fn new<P: Into<PathBuf>>(steam: P, lutris: P) -> Self {
-        AppConfigPaths {
-            steam: steam.into(),
-            lutris: lutris.into(),
-        }
-    }
-}
-
-impl<T: PathConfiguration> From<&T> for AppConfigPaths {
-    fn from(path_cfg: &T) -> Self {
-        AppConfigPaths::new(
-            path_cfg.steam_config(overrule::steam_root()),
-            path_cfg.lutris_wine_runner_config(overrule::xdg_config_home()),
-        )
-    }
-}
-
 pub struct PathConfig {}
 
 impl PathConfig {
