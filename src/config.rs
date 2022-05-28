@@ -44,7 +44,8 @@ impl GeManConfig {
 
         let fs_config: GeManConfig = serde_yaml::from_str(&json).context("Could not serialize YAML to struct")?;
         self.steam_root_path_str = fs_config.steam_root_path_str;
-        self.determine_steam_root_path()?;
+        self.determine_steam_root_path()
+            .context("The configured Steam root path in the GE-Man config is not valid")?;
         Ok(())
     }
 
@@ -58,7 +59,7 @@ impl GeManConfig {
 
         for cap in captures {
             let env_name = &cap[1];
-            let env_value = env::var(&cap[2])?;
+            let env_value = env::var(&cap[2]).context(format!("Environment variable {} does not exist", &cap[2]))?;
 
             expanded_path = expanded_path.replace(env_name, &env_value);
         }
@@ -74,7 +75,9 @@ impl GeManConfig {
 
         let steam_root_path_str = self.steam_root_path_str.as_ref().unwrap();
         let expanded_path = GeManConfig::path_with_expanded_env_vars(steam_root_path_str)?;
-        self.steam_root_path = Some(PathBuf::from(expanded_path));
+        let expanded_path =
+            PathBuf::try_from(&expanded_path).context(format!("Path {} is not valid", &expanded_path))?;
+        self.steam_root_path = Some(expanded_path);
         Ok(())
     }
 }
