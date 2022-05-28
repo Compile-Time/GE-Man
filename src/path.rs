@@ -32,52 +32,6 @@ pub fn steam_root() -> Option<PathBuf> {
         .or_else(|| config::GE_MAN_CONFIG.lock().unwrap().steam_root_path())
 }
 
-pub struct PathOverrides {
-    steam_root_cfg: Option<PathBuf>,
-    steam_root_env: Option<PathBuf>,
-    xdg_data_home: Option<PathBuf>,
-    xdg_config_home: Option<PathBuf>,
-}
-
-impl PathOverrides {
-    pub fn new(
-        steam_root_cfg: Option<PathBuf>,
-        steam_root_env: Option<PathBuf>,
-        xdg_data_home: Option<PathBuf>,
-        xdg_config_home: Option<PathBuf>,
-    ) -> Self {
-        Self {
-            steam_root_cfg,
-            steam_root_env,
-            xdg_data_home,
-            xdg_config_home,
-        }
-    }
-
-    pub fn steam_root(&self) -> Option<&PathBuf> {
-        self.steam_root_cfg.as_ref().or(self.steam_root_env.as_ref())
-    }
-
-    pub fn xdg_data_home(&self) -> Option<&PathBuf> {
-        self.xdg_data_home.as_ref()
-    }
-
-    pub fn xdg_config_home(&self) -> Option<&PathBuf> {
-        self.xdg_config_home.as_ref()
-    }
-}
-
-impl Default for PathOverrides {
-    fn default() -> Self {
-        let xdg_data = env::var(XDG_DATA_HOME).map(PathBuf::from).ok();
-        let xdg_config = env::var(XDG_CONFIG_HOME).map(PathBuf::from).ok();
-        let steam_root_env = env::var(STEAM_PATH_ENV).map(PathBuf::from).ok();
-        let steam_root_from_cfg = config::GE_MAN_CONFIG.lock().unwrap().steam_root_path();
-
-        PathOverrides::new(steam_root_from_cfg, steam_root_env, xdg_data, xdg_config)
-    }
-}
-
 #[cfg_attr(test, automock)]
 pub trait PathConfiguration {
     fn xdg_data_dir(&self, xdg_data_home: Option<PathBuf>) -> PathBuf {
