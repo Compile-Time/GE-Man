@@ -52,8 +52,8 @@ See [CHANGELOG.md](./CHANGELOG.md) for all changes.
 
 # Configuration
 
-Currently, GE-Man supports setting the Steam root path with a config file in `$XDG_CONFIG_HOME/ge_man`.
-If `XDG_CONFIG_HOME` is not set, `$HOME/.config/ge_man` is used instead.
+Currently, GE-Man supports setting the Steam root path with a config file under `$XDG_CONFIG_HOME/ge_man/config.yml`.
+If `XDG_CONFIG_HOME` is not set, `$HOME/.config/ge_man/config.yml` is used instead.
 
 For example ...
 
