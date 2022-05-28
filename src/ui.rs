@@ -116,7 +116,9 @@ impl<'a> TerminalWriter<'a> {
 
     fn write_managed_versions(&self, managed_versions: ManagedVersions) -> anyhow::Result<()> {
         let path = self.path_cfg.managed_versions_config(overrule::xdg_data_home());
-        managed_versions.write_to_file(&path)
+        managed_versions
+            .write_to_file(&path)
+            .context(format!("Could not write managed_versions.json to {}", path.display()))
     }
 
     pub fn list(&self, stdout: &mut impl Write, args: ListArgs, config_paths: AppConfigPaths) -> anyhow::Result<()> {
