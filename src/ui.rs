@@ -14,7 +14,7 @@ use crate::args::{
 };
 use crate::data::{ManagedVersion, ManagedVersions};
 use crate::filesystem::FilesystemManager;
-use crate::path::{xdg_data_home, AppConfigPaths, PathConfiguration};
+use crate::path::{overrule, AppConfigPaths, PathConfiguration};
 use crate::progress::{DownloadProgressTracker, ExtractionProgressTracker};
 use crate::version::{Version, Versioned};
 
@@ -109,13 +109,13 @@ impl<'a> TerminalWriter<'a> {
     }
 
     fn read_managed_versions(&self) -> anyhow::Result<ManagedVersions> {
-        let path = self.path_cfg.managed_versions_config(xdg_data_home());
+        let path = self.path_cfg.managed_versions_config(overrule::xdg_data_home());
         ManagedVersions::from_file(&path)
             .context(format!("Could not read managed_versions.json from {}", path.display()))
     }
 
     fn write_managed_versions(&self, managed_versions: ManagedVersions) -> anyhow::Result<()> {
-        let path = self.path_cfg.managed_versions_config(xdg_data_home());
+        let path = self.path_cfg.managed_versions_config(overrule::xdg_data_home());
         managed_versions.write_to_file(&path)
     }
 

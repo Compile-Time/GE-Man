@@ -11,9 +11,9 @@ use ge_man::clap::commands::{
     ADD, APPLY, CHECK, FORGET, LIST, MIGRATE, PROTON_USER_SETTINGS, REMOVE, USER_SETTINGS_COPY,
 };
 use ge_man::filesystem::FsMng;
-use ge_man::path::{AppConfigPaths, PathConfig, PathConfiguration};
+use ge_man::path::{overrule, AppConfigPaths, PathConfig, PathConfiguration};
 use ge_man::ui::TerminalWriter;
-use ge_man::{clap, config, path};
+use ge_man::{clap, config};
 
 fn main() -> anyhow::Result<()> {
     let matches = clap::setup_clap().get_matches();
@@ -76,11 +76,15 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn setup_directory_structure(path_config: &PathConfig) -> anyhow::Result<()> {
-    if let Err(err) = path_config.create_ge_man_dirs(path::xdg_config_home(), path::xdg_data_home()) {
+    if let Err(err) = path_config.create_ge_man_dirs(overrule::xdg_config_home(), overrule::xdg_data_home()) {
         bail!("Failed to setup xdg directory structure: {:#}", err);
     }
 
-    if let Err(err) = path_config.create_app_dirs(path::xdg_config_home(), path::xdg_data_home(), path::steam_root()) {
+    if let Err(err) = path_config.create_app_dirs(
+        overrule::xdg_config_home(),
+        overrule::xdg_data_home(),
+        overrule::steam_root(),
+    ) {
         bail!(
             "Failed to setup required directory paths for Steam and Lutris: {:#}",
             err

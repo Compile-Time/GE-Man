@@ -17,19 +17,23 @@ pub const XDG_CONFIG_HOME: &str = "XDG_CONFIG_HOME";
 pub const STEAM_PATH_ENV: &str = "GE_MAN_STEAM_PATH";
 const APP_NAME: &str = "ge_man";
 
-pub fn xdg_data_home() -> Option<PathBuf> {
-    env::var(XDG_DATA_HOME).map(PathBuf::from).ok()
-}
+pub mod overrule {
+    use super::*;
 
-pub fn xdg_config_home() -> Option<PathBuf> {
-    env::var(XDG_CONFIG_HOME).map(PathBuf::from).ok()
-}
+    pub fn xdg_data_home() -> Option<PathBuf> {
+        env::var(XDG_DATA_HOME).map(PathBuf::from).ok()
+    }
 
-pub fn steam_root() -> Option<PathBuf> {
-    env::var(STEAM_PATH_ENV)
-        .map(PathBuf::from)
-        .ok()
-        .or_else(|| config::GE_MAN_CONFIG.lock().unwrap().steam_root_path())
+    pub fn xdg_config_home() -> Option<PathBuf> {
+        env::var(XDG_CONFIG_HOME).map(PathBuf::from).ok()
+    }
+
+    pub fn steam_root() -> Option<PathBuf> {
+        env::var(STEAM_PATH_ENV)
+            .map(PathBuf::from)
+            .ok()
+            .or_else(|| config::GE_MAN_CONFIG.lock().unwrap().steam_root_path())
+    }
 }
 
 #[cfg_attr(test, automock)]
@@ -182,8 +186,8 @@ impl AppConfigPaths {
 impl<T: PathConfiguration> From<&T> for AppConfigPaths {
     fn from(path_cfg: &T) -> Self {
         AppConfigPaths::new(
-            path_cfg.steam_config(steam_root()),
-            path_cfg.lutris_wine_runner_config(xdg_config_home()),
+            path_cfg.steam_config(overrule::steam_root()),
+            path_cfg.lutris_wine_runner_config(overrule::xdg_config_home()),
         )
     }
 }
