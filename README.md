@@ -38,7 +38,8 @@ to no OpenSSL library being present.
 
 # Installation
 
-GE-Man can be installed with cargo or by downloading the precompiled binaries from the [release page](https://github.com/Compile-Time/GE-Man/releases).
+GE-Man can be installed with cargo or by downloading the precompiled binaries from
+the [release page](https://github.com/Compile-Time/GE-Man/releases).
 
 `cargo install ge-man`
 
@@ -48,6 +49,17 @@ everywhere in a terminal add the `$HOME/.cargo` path to the `PATH` environment v
 # Changelog
 
 See [CHANGELOG.md](./CHANGELOG.md) for all changes.
+
+# Configuration
+
+Currently, GE-Man supports setting the Steam root path with a config file in `$XDG_CONFIG_HOME/ge_man`.
+If `XDG_CONFIG_HOME` is not set, `$HOME/.config/ge_man` is used instead.
+
+For example ...
+
+```yaml
+steam_root_path: $HOME/.local/share/Steam
+```
 
 # Usage
 
@@ -68,13 +80,18 @@ Every command supports a `--help` argument to view possible parameters and gener
 
 ```sh
 # Proton GE
-ge-man add -p GE-Proton7-8
+geman add -p GE-Proton7-8
 
 # Wine GE
-ge-man add -w GE-Proton7-6
+geman add -w GE-Proton7-6
 
 # Wine GE for LoL
-ge-man add -l 7.0-GE-1-LoL
+geman add -l 7.0-GE-1-LoL
+
+# Latest release for a kind
+geman add -p
+geman add -w
+geman add -l
 ```
 
 You can also directly apply the downloaded version by using the `--apply` option.<br>
@@ -84,13 +101,13 @@ If no release is provided to the `-p`, `-w` and `-l` options, the latest release
 
 ```sh
 # Proton GE
-ge-man rm -p GE-Proton7-8
+geman rm -p GE-Proton7-8
 
 # Wine GE
-ge-man rm -w GE-Proton7-6
+geman rm -w GE-Proton7-6
 
 # Wine GE for LoL
-ge-man rm -l 7.0-GE-1-LoL
+geman rm -l 7.0-GE-1-LoL
 ```
 
 This operation will delete the versions file from the hard drive. If you wish to keep the files and only "forget"
@@ -100,45 +117,45 @@ the version in ge-man then use the `forget` command.
 
 ```sh
 # All GE kinds
-ge-man check
+geman check
 
 # Proton GE
-ge-man check -p
+geman check -p
 
 # Wine GE
-ge-man check -w
+geman check -w
 
 # Wine GE for LoL
-ge-man check -l
+geman check -l
 ```
 
 ## How can I remove a version without deleting its files?
 
 ```sh
 # Proton GE
-ge-man forget -p GE-Proton7-8
+geman forget -p GE-Proton7-8
 
 # Wine GE
-ge-man forget -w GE-Proton7-6
+geman forget -w GE-Proton7-6
 
 # Wine GE for LoL
-ge-man forget -l 7.0-GE-1-LoL
+geman forget -l 7.0-GE-1-LoL
 ```
 
 ## How can I list the ge-man managed versions?
 
 ```sh
 # All GE kinds
-ge-man list
+geman list
 
 # Proton GE
-ge-man list -p
+geman list -p
 
 # Wine GE
-ge-man list -w
+geman list -w
 
 # Wine GE for LoL
-ge-man list -l
+geman list -l
 ```
 
 ## How can I make my existing GE versions manageable by GE-Man?
@@ -148,11 +165,11 @@ path to a directory containing a GE version and the kind of GE version.
 
 ```sh
 # Proton GE
-ge-man migrate -s $HOME/.local/share/Steam/compatibilitytools.d/GE-Proton7-8 -p GE-Proton7-8
+geman migrate -s $HOME/.local/share/Steam/compatibilitytools.d/GE-Proton7-8 -p GE-Proton7-8
 
 # Wine GE
-ge-man migrate -s $HOME/.local/share/lutris/runners/wine/lutris-GE-Proton7-6-x86_64/ -w GE-Proton7-6
+geman migrate -s $HOME/.local/share/lutris/runners/wine/lutris-GE-Proton7-6-x86_64/ -w GE-Proton7-6
 
 # Wine GE for LoL
-ge-man migrate -s $HOME/.local/share/lutris/runners/wine/lutris-ge-7.0-1-lol-x86_64 -l 7.0-GE-1-LoL
+geman migrate -s $HOME/.local/share/lutris/runners/wine/lutris-ge-7.0-1-lol-x86_64 -l 7.0-GE-1-LoL
 ```
