@@ -8,6 +8,7 @@ use ge_man_lib::download::{DownloadRequest, GeDownload};
 use ge_man_lib::error::{GithubError, LutrisConfigError, SteamConfigError};
 use ge_man_lib::tag::TagKind;
 use itertools::Itertools;
+use log::debug;
 
 use crate::args::{
     AddArgs, ApplyArgs, CheckArgs, CopyUserSettingsArgs, ForgetArgs, ListArgs, MigrationArgs, RemoveArgs,
@@ -110,12 +111,14 @@ impl<'a> TerminalWriter<'a> {
 
     fn read_managed_versions(&self) -> anyhow::Result<ManagedVersions> {
         let path = self.path_cfg.managed_versions_config(overrule::xdg_data_home());
+        debug!("Reading managed versions from the following file: {}", path.display());
         ManagedVersions::from_file(&path)
             .context(format!("Could not read managed_versions.json from {}", path.display()))
     }
 
     fn write_managed_versions(&self, managed_versions: ManagedVersions) -> anyhow::Result<()> {
         let path = self.path_cfg.managed_versions_config(overrule::xdg_data_home());
+        debug!("Writing managed versions from the following file: {}", path.display());
         managed_versions
             .write_to_file(&path)
             .context(format!("Could not write managed_versions.json to {}", path.display()))
@@ -123,12 +126,20 @@ impl<'a> TerminalWriter<'a> {
 
     pub fn list(&self, stdout: &mut impl Write, args: ListArgs) -> anyhow::Result<()> {
         let lutris_path = self.path_cfg.lutris_wine_runner_config(overrule::xdg_config_home());
+        debug!(
+            "Reading currently used Lutris version from the following config file: {}",
+            lutris_path.display()
+        );
         let wine_dir_name = match LutrisConfig::create_copy(&lutris_path) {
             Ok(config) => Some(config.wine_version()),
             Err(_) => None,
         };
 
         let steam_path = self.path_cfg.steam_config(overrule::steam_root());
+        debug!(
+            "Reading currently used Steam version from the following config file: {}",
+            steam_path.display()
+        );
         let proton_dir_name = match SteamConfig::create_copy(&steam_path) {
             Ok(config) => Some(config.proton_version()),
             Err(_) => None,
@@ -273,6 +284,7 @@ impl<'a> TerminalWriter<'a> {
         match &version.kind() {
             TagKind::Proton => {
                 let path = self.path_cfg.steam_config(overrule::steam_root());
+                debug!("Removing {} from Steam config file: {}", version.tag(), path.display());
                 let config = SteamConfig::create_copy(&path)
                     .map_err(|err| anyhow!(err))
                     .context(format!("Failed to read Steam config: {}", path.display()))?;
@@ -283,6 +295,7 @@ impl<'a> TerminalWriter<'a> {
             }
             TagKind::Wine { .. } => {
                 let path = self.path_cfg.lutris_wine_runner_config(overrule::xdg_config_home());
+                debug!("Removing {} from Lutris config file: {}", version.tag(), path.display());
                 let config = LutrisConfig::create_copy(&path);
                 match config {
                     Ok(config) => {

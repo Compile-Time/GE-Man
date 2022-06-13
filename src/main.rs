@@ -16,6 +16,8 @@ use ge_man::ui::TerminalWriter;
 use ge_man::{clap, config};
 
 fn main() -> anyhow::Result<()> {
+    env_logger::init();
+
     let matches = clap::setup_clap().get_matches();
 
     let stderr = io::stderr();

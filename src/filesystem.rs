@@ -7,6 +7,7 @@ use anyhow::{anyhow, bail, Context};
 use ge_man_lib::archive;
 use ge_man_lib::config::{LutrisConfig, SteamConfig};
 use ge_man_lib::tag::TagKind;
+use log::debug;
 #[cfg(test)]
 use mockall::{automock, predicate::*};
 
@@ -200,6 +201,11 @@ impl<'a> FilesystemManager for FsMng<'a> {
             .steam_compatibility_tools_dir(overrule::steam_root())
             .join(dst_version.directory_name())
             .join(USER_SETTINGS_PY);
+        debug!(
+            "Copying user-settings.py from {} to {}",
+            src_path.display(),
+            dst_path.display()
+        );
 
         fs::copy(src_path, dst_path).context(format!(
             "Could not copy user_settings.py from {} to {}",
