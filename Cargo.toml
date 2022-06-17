@@ -1,6 +1,6 @@
 [package]
 name = "ge-man"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 keywords = ["GloriousEgroll", "Steam", "Lutris", "GE-Proton", "Wine-GE"]
 categories = ["command-line-utilities"]
