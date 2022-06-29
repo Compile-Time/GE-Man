@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
 
     let output_writer = TerminalWriter::new(&compatibility_tool_downloader, &fs_mng, &path_config);
     let result = match matches.subcommand_name() {
-        Some(LIST) => output_writer.list(&mut out_handle, ListArgs::from(matches)),
+        Some(LIST) => output_writer.list(&mut out_handle, &mut err_handle, ListArgs::from(matches)),
         Some(ADD) => output_writer.add(&mut out_handle, AddArgs::from(matches)),
         Some(REMOVE) => output_writer.remove(&mut out_handle, RemoveArgs::from(matches)),
         Some(CHECK) => {

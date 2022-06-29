@@ -124,7 +124,7 @@ impl<'a> TerminalWriter<'a> {
             .context(format!("Could not write managed_versions.json to {}", path.display()))
     }
 
-    pub fn list(&self, stdout: &mut impl Write, args: ListArgs) -> anyhow::Result<()> {
+    pub fn list(&self, stdout: &mut impl Write, stderr: &mut impl Write, args: ListArgs) -> anyhow::Result<()> {
         let lutris_path = self.path_cfg.lutris_wine_runner_config(overrule::xdg_config_home());
         debug!(
             "Reading currently used Lutris version from the following config file: {}",
@@ -132,7 +132,14 @@ impl<'a> TerminalWriter<'a> {
         );
         let wine_dir_name = match LutrisConfig::create_copy(&lutris_path) {
             Ok(config) => Some(config.wine_version()),
-            Err(_) => None,
+            Err(_) => {
+                writeln!(
+                    stderr,
+                    r###"Lutris config not found - "In use" information can not be provided"###
+                )
+                .unwrap();
+                None
+            }
         };
 
         let steam_path = self.path_cfg.steam_config(overrule::steam_root());
@@ -142,7 +149,14 @@ impl<'a> TerminalWriter<'a> {
         );
         let proton_dir_name = match SteamConfig::create_copy(&steam_path) {
             Ok(config) => Some(config.proton_version()),
-            Err(_) => None,
+            Err(_) => {
+                writeln!(
+                    stderr,
+                    r###"Steam config not found - "In use" information can not be provided"###
+                )
+                .unwrap();
+                None
+            }
         };
 
         let mut managed_versions: Vec<ManagedVersion> = if args.newest {
