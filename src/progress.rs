@@ -2,8 +2,8 @@ use std::io::Read;
 
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
-use ge_man_lib::download::ReadProgressWrapper;
 use ge_man_lib::download::response::GeAsset;
+use ge_man_lib::download::ReadProgressWrapper;
 
 fn style() -> ProgressStyle {
     ProgressStyle::default_bar()
@@ -29,10 +29,10 @@ impl Default for DownloadProgressTracker {
 }
 
 impl ReadProgressWrapper for DownloadProgressTracker {
-    fn init(self: Box<Self>, len: u64) -> Box<dyn ReadProgressWrapper> {
+    fn init(self: Box<Self>, len: u64, asset: &GeAsset) -> Box<dyn ReadProgressWrapper> {
         let pb = ProgressBar::with_draw_target(len, ProgressDrawTarget::stdout())
             .with_style(style())
-            .with_message("Downloading archive:");
+            .with_message(format!("Downloading {}", asset.name));
 
         Box::new(DownloadProgressTracker::new(pb))
     }

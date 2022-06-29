@@ -9,8 +9,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-* Add the ability to set the Steam installation path via a config file in `$XDG_CONFIG_HOME/ge_man/config.json`.
+* Add the ability to set the Steam installation path via a config file in `$XDG_CONFIG_HOME/ge_man/config.json`. <br>
   Alternatively, the Steam path can also be set with the `GE_MAN_STEAM_PATH` variable.
+
+### Changed
+
+* Changed "Downloading archive" to "Downloading <file name>".
 
 ## [0.1.2] - 2022-06-17
 
