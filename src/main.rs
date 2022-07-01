@@ -7,7 +7,7 @@ use ge_man_lib::download::GeDownloader;
 use ge_man::args::{
     AddArgs, ApplyArgs, CheckArgs, CopyUserSettingsArgs, ForgetArgs, ListArgs, MigrationArgs, RemoveArgs,
 };
-use ge_man::clap::commands::{
+use ge_man::clap::command_names::{
     ADD, APPLY, CHECK, FORGET, LIST, MIGRATE, PROTON_USER_SETTINGS, REMOVE, USER_SETTINGS_COPY,
 };
 use ge_man::filesystem::FsMng;

@@ -4,7 +4,7 @@ use clap::ArgMatches;
 
 use ge_man_lib::tag::{Tag, TagKind};
 
-use crate::clap::{arg_group_names, arg_names, commands};
+use crate::clap::{arg_group_names, arg_names, command_names};
 use crate::version::Version;
 
 #[derive(Debug)]
@@ -70,7 +70,7 @@ impl ListArgs {
 
 impl From<ArgMatches> for ListArgs {
     fn from(matches: ArgMatches) -> Self {
-        let matches = matches.subcommand_matches(commands::LIST).unwrap();
+        let matches = matches.subcommand_matches(command_names::LIST).unwrap();
         let newest = matches.is_present(arg_names::NEWEST_ARG);
         let kind = TagArg::try_from(matches).ok().map(|tag| tag.kind);
 
@@ -97,7 +97,7 @@ impl AddArgs {
 
 impl From<ArgMatches> for AddArgs {
     fn from(matches: ArgMatches) -> Self {
-        let matches = matches.subcommand_matches(commands::ADD).unwrap();
+        let matches = matches.subcommand_matches(command_names::ADD).unwrap();
         let tag = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
         let skip_checksum = matches.is_present(arg_names::SKIP_CHECKSUM_ARG);
         let apply = matches.is_present(arg_names::APPLY_ARG);
@@ -118,7 +118,7 @@ impl RemoveArgs {
 
 impl From<ArgMatches> for RemoveArgs {
     fn from(matches: ArgMatches) -> Self {
-        let matches = matches.subcommand_matches(commands::REMOVE).unwrap();
+        let matches = matches.subcommand_matches(command_names::REMOVE).unwrap();
         let tag_arg = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
         if tag_arg.tag.is_none() {
             panic!("No version provided!")
@@ -140,7 +140,7 @@ impl CheckArgs {
 
 impl From<ArgMatches> for CheckArgs {
     fn from(matches: ArgMatches) -> Self {
-        let matches = matches.subcommand_matches(commands::CHECK).unwrap();
+        let matches = matches.subcommand_matches(command_names::CHECK).unwrap();
         if matches.is_present(arg_group_names::TAG) {
             let tag_arg = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
             let kind = tag_arg.kind;
@@ -171,7 +171,7 @@ impl MigrationArgs {
 
 impl From<ArgMatches> for MigrationArgs {
     fn from(matches: ArgMatches) -> Self {
-        let matches = matches.subcommand_matches(commands::MIGRATE).unwrap();
+        let matches = matches.subcommand_matches(command_names::MIGRATE).unwrap();
         let tag_arg = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
         let source_path = matches.value_of(arg_names::SOURCE_ARG).unwrap();
 
@@ -191,7 +191,7 @@ impl ApplyArgs {
 
 impl From<ArgMatches> for ApplyArgs {
     fn from(matches: ArgMatches) -> Self {
-        let matches = matches.subcommand_matches(commands::APPLY).unwrap();
+        let matches = matches.subcommand_matches(command_names::APPLY).unwrap();
         let tag_arg = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
         ApplyArgs::new(tag_arg)
     }
@@ -218,8 +218,8 @@ impl Default for CopyUserSettingsArgs {
 
 impl From<ArgMatches> for CopyUserSettingsArgs {
     fn from(matches: ArgMatches) -> Self {
-        let matches = matches.subcommand_matches(commands::PROTON_USER_SETTINGS).unwrap();
-        let matches = matches.subcommand_matches(commands::USER_SETTINGS_COPY).unwrap();
+        let matches = matches.subcommand_matches(command_names::PROTON_USER_SETTINGS).unwrap();
+        let matches = matches.subcommand_matches(command_names::USER_SETTINGS_COPY).unwrap();
         let src_tag = matches.value_of(arg_names::SOURCE_ARG).unwrap();
         let dst_tag = matches.value_of(arg_names::DESTINATION_ARG).unwrap();
 
@@ -239,7 +239,7 @@ impl ForgetArgs {
 
 impl From<ArgMatches> for ForgetArgs {
     fn from(matches: ArgMatches) -> Self {
-        let matches = matches.subcommand_matches(commands::FORGET).unwrap();
+        let matches = matches.subcommand_matches(command_names::FORGET).unwrap();
         let tag_arg = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
 
         ForgetArgs::new(tag_arg)
@@ -478,16 +478,7 @@ mod tests {
 
     #[test]
     fn migrate_only_one_tag_arg_allowed() {
-        let args = vec![
-            "geman",
-            "migrate",
-            "-s",
-            "/tmp",
-            "-p",
-            "6.20-GE-1",
-            "-w",
-            "6.20-GE-1",
-        ];
+        let args = vec!["geman", "migrate", "-s", "/tmp", "-p", "6.20-GE-1", "-w", "6.20-GE-1"];
         let result = setup_clap().try_get_matches_from(args);
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -525,15 +516,7 @@ mod tests {
 
     #[test]
     fn copy_user_settings_with_all_required_args() {
-        let args = vec![
-            "geman",
-            "user-settings",
-            "copy",
-            "-s",
-            "6.20-GE-1",
-            "-d",
-            "6.21-GE-1",
-        ];
+        let args = vec!["geman", "user-settings", "copy", "-s", "6.20-GE-1", "-d", "6.21-GE-1"];
         let mut expected = CopyUserSettingsArgs::default();
         expected.src_tag = Tag::from("6.20-GE-1");
         expected.dst_tag = Tag::from("6.21-GE-1");

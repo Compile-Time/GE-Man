@@ -1,8 +1,8 @@
-use clap::{Arg, ArgGroup, command, Command, crate_version};
+use clap::{command, crate_version, Arg, ArgGroup, Command};
 
 pub const APP_NAME: &str = "GE Helper";
 
-pub mod commands {
+pub mod command_names {
     pub const LIST: &str = "list";
     pub const ADD: &str = "add";
     pub const REMOVE: &str = "remove";
@@ -158,7 +158,7 @@ fn tag_arg_group(required: bool) -> ArgGroup<'static> {
 }
 
 fn setup_list_cmd() -> Command<'static> {
-    Command::new(commands::LIST)
+    Command::new(command_names::LIST)
         .about(about_text::LIST)
         .version(crate_version!())
         .args(&[
@@ -170,7 +170,7 @@ fn setup_list_cmd() -> Command<'static> {
 }
 
 fn setup_add_cmd() -> Command<'static> {
-    Command::new(commands::ADD)
+    Command::new(command_names::ADD)
         .about(about_text::ADD)
         .version(crate_version!())
         .args(&[
@@ -184,7 +184,7 @@ fn setup_add_cmd() -> Command<'static> {
 }
 
 fn setup_rm_cmd() -> Command<'static> {
-    Command::new(commands::REMOVE)
+    Command::new(command_names::REMOVE)
         .about(about_text::REMOVE)
         .version(crate_version!())
         .alias("rm")
@@ -197,7 +197,7 @@ fn setup_rm_cmd() -> Command<'static> {
 }
 
 fn setup_check_cmd() -> Command<'static> {
-    Command::new(commands::CHECK)
+    Command::new(command_names::CHECK)
         .about(about_text::CHECK)
         .version(crate_version!())
         .alias("ck")
@@ -210,7 +210,7 @@ fn setup_check_cmd() -> Command<'static> {
 }
 
 fn setup_migrate_cmd() -> Command<'static> {
-    Command::new(commands::MIGRATE)
+    Command::new(command_names::MIGRATE)
         .about(about_text::MIGRATE)
         .version(crate_version!())
         .alias("mg")
@@ -233,7 +233,7 @@ fn setup_migrate_cmd() -> Command<'static> {
 }
 
 fn setup_apply_cmd() -> Command<'static> {
-    Command::new(commands::APPLY)
+    Command::new(command_names::APPLY)
         .about(about_text::APPLY)
         .version(crate_version!())
         .args(&[
@@ -245,13 +245,13 @@ fn setup_apply_cmd() -> Command<'static> {
 }
 
 fn setup_user_settings_cmd() -> Command<'static> {
-    Command::new(commands::PROTON_USER_SETTINGS)
+    Command::new(command_names::PROTON_USER_SETTINGS)
         .about(about_text::USER_SETTINGS)
         .version(crate_version!())
         .alias("us")
         .subcommand_required(true)
         .subcommand(
-            Command::new(commands::USER_SETTINGS_COPY)
+            Command::new(command_names::USER_SETTINGS_COPY)
                 .about(about_text::USER_SETTINGS_COPY)
                 .arg(
                     Arg::new(arg_names::SOURCE_ARG)
@@ -277,7 +277,7 @@ fn setup_user_settings_cmd() -> Command<'static> {
 }
 
 fn setup_forget_cmd() -> Command<'static> {
-    Command::new(commands::FORGET)
+    Command::new(command_names::FORGET)
         .about(about_text::FORGET)
         .version(crate_version!())
         .args(&[
