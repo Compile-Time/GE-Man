@@ -670,7 +670,8 @@ mod tests {
 
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
         let mut stdout = AssertLines::new();
-        writer.list(&mut stdout, args).unwrap();
+        let mut stderr = AssertLines::new();
+        writer.list(&mut stdout, &mut stderr, args).unwrap();
 
         stdout.assert_line(0, "Proton GE:");
         stdout.assert_line(1, "* 6.20-GE-1");
@@ -720,7 +721,8 @@ mod tests {
 
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
         let mut stdout = AssertLines::new();
-        writer.list(&mut stdout, args).unwrap();
+        let mut stderr = AssertLines::new();
+        writer.list(&mut stdout, &mut stderr, args).unwrap();
 
         stdout.assert_line(0, "Proton GE:");
         stdout.assert_line(1, "* 6.21-GE-2 - In use by Steam");
@@ -776,7 +778,8 @@ mod tests {
 
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
         let mut stdout = AssertLines::new();
-        writer.list(&mut stdout, args).unwrap();
+        let mut stderr = AssertLines::new();
+        writer.list(&mut stdout, &mut stderr, args).unwrap();
 
         stdout.assert_line(0, "Proton GE:");
         stdout.assert_line(1, "* 6.20-GE-2");
@@ -838,7 +841,8 @@ mod tests {
 
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
         let mut stdout = AssertLines::new();
-        writer.list(&mut stdout, args).unwrap();
+        let mut stderr = AssertLines::new();
+        writer.list(&mut stdout, &mut stderr, args).unwrap();
 
         stdout.assert_line(0, "Proton GE:");
         stdout.assert_line(1, "* 6.21-GE-2 - In use by Steam");
