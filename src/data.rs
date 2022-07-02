@@ -121,7 +121,7 @@ impl Display for ManagedVersion {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Debug)]
 pub struct ManagedVersions {
     versions: Vec<ManagedVersion>,
 }
@@ -346,13 +346,6 @@ mod managed_versions_tests {
         let mut managed_versions = ManagedVersions::default();
         let option = managed_versions.remove(&Version::proton("6.20-GE-1"));
         assert_eq!(option, None);
-    }
-
-    #[test]
-    fn get_all_versions() {
-        let managed_versions = ManagedVersions::new(VERSIONS.clone());
-        assert_eq!(managed_versions.vec_mut(), *VERSIONS);
-        assert_eq!(managed_versions.vec_mut().len(), 6);
     }
 
     #[test]

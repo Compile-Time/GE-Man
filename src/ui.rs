@@ -468,6 +468,10 @@ mod tests {
             assert_eq!(line.trim(), expected);
         }
 
+        pub fn assert_count(&self, size: usize) {
+            assert_eq!(self.lines.len(), size)
+        }
+
         pub fn assert_empty(&self) {
             assert!(self.lines.is_empty())
         }
@@ -553,232 +557,108 @@ mod tests {
         stdout.assert_empty();
     }
 
-    #[test]
-    fn list_newest_output() {
-        let args = ListCommandInput::new(None, true);
+    fn list_test_template(stdout: &mut AssertLines, stderr: &mut AssertLines, input: ListCommandInput) {
+        // A lot of these variables will disappear once more refactorings have been completed.
         let fs_mng = MockFilesystemManager::new();
         let ge_downloader = MockDownloader::new();
 
         let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(
-            &json_path,
-            vec![
-                ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.20-GE-1", TagKind::wine(), ""),
-                ManagedVersion::new("6.16-GE-3-LoL", TagKind::lol(), ""),
-            ],
-        );
-
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
-        let steam_path = PathBuf::from("test_resources/assets/config.vdf");
-        path_cfg
-            .expect_steam_config()
-            .once()
-            .returning(move |_| steam_path.clone());
-
-        let lutris_path = PathBuf::from("test_resources/assets/wine.yml");
-        path_cfg
-            .expect_lutris_wine_runner_config()
-            .once()
-            .returning(move |_| lutris_path.clone());
+        let path_cfg = MockPathConfiguration::new();
 
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        writer.list_versions(stdout, stderr, input);
+    }
+
+    #[test]
+    fn list_steam_newest_version() {
+        let managed_versions = ManagedVersions::new(vec![
+            ManagedVersion::new("GE-Proton7-22", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
+        ]);
+        let input = ListCommandInput::new(TagKind::Proton, true, None, managed_versions, String::from("Steam"));
+
         let mut stdout = AssertLines::new();
         let mut stderr = AssertLines::new();
-        writer.list(&mut stdout, &mut stderr, args).unwrap();
+        list_test_template(&mut stdout, &mut stderr, input);
 
+        stdout.assert_count(3);
         stdout.assert_line(0, "Proton GE:");
-        stdout.assert_line(1, "* 6.20-GE-1");
+        stdout.assert_line(1, "* GE-Proton7-22");
         stdout.assert_line(2, "");
-        stdout.assert_line(3, "Wine GE:");
-        stdout.assert_line(4, "* 6.20-GE-1");
-        stdout.assert_line(5, "");
-        stdout.assert_line(6, "Wine GE (LoL):");
-        stdout.assert_line(7, "* 6.16-GE-3-LoL");
-        stdout.assert_line(8, "");
     }
 
     #[test]
-    fn list_newest_output_with_in_use_version() {
-        let args = ListCommandInput::new(None, true);
-        let fs_mng = MockFilesystemManager::new();
-        let ge_downloader = MockDownloader::new();
-
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(
-            &json_path,
-            vec![
-                ManagedVersion::new("6.21-GE-2", TagKind::Proton, "Proton-6.21-GE-2"),
-                ManagedVersion::new("6.21-GE-1", TagKind::wine(), "lutris-ge-6.21-1-x86_64"),
-                ManagedVersion::new("6.16-GE-3-LoL", TagKind::lol(), ""),
-            ],
+    fn list_newest_steam_version_with_in_use_info() {
+        let managed_versions = ManagedVersions::new(vec![
+            ManagedVersion::new("GE-Proton7-22", TagKind::Proton, "GE-Proton7-22"),
+            ManagedVersion::new("6.21-GE-1", TagKind::Proton, "6.21-GE-1"),
+            ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6.20-GE-1"),
+        ]);
+        let input = ListCommandInput::new(
+            TagKind::Proton,
+            true,
+            Some(String::from("GE-Proton7-22")),
+            managed_versions,
+            String::from("Steam"),
         );
 
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
-        let steam_path = PathBuf::from("test_resources/assets/config.vdf");
-        path_cfg
-            .expect_steam_config()
-            .once()
-            .returning(move |_| steam_path.clone());
-
-        let lutris_path = PathBuf::from("test_resources/assets/wine.yml");
-        path_cfg
-            .expect_lutris_wine_runner_config()
-            .once()
-            .returning(move |_| lutris_path.clone());
-
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
         let mut stdout = AssertLines::new();
         let mut stderr = AssertLines::new();
-        writer.list(&mut stdout, &mut stderr, args).unwrap();
+        list_test_template(&mut stdout, &mut stderr, input);
 
+        stdout.assert_count(3);
         stdout.assert_line(0, "Proton GE:");
-        stdout.assert_line(1, "* 6.21-GE-2 - In use by Steam");
+        stdout.assert_line(1, "* GE-Proton7-22 - In use by Steam");
         stdout.assert_line(2, "");
-        stdout.assert_line(3, "Wine GE:");
-        stdout.assert_line(4, "* 6.21-GE-1 - In use by Lutris");
-        stdout.assert_line(5, "");
-        stdout.assert_line(6, "Wine GE (LoL):");
-        stdout.assert_line(7, "* 6.16-GE-3-LoL");
-        stdout.assert_line(8, "");
     }
 
     #[test]
-    fn list_all() {
-        let args = ListCommandInput::new(None, false);
-        let fs_mng = MockFilesystemManager::new();
-        let ge_downloader = MockDownloader::new();
+    fn list_steam_versions() {
+        let managed_versions = ManagedVersions::new(vec![
+            ManagedVersion::new("GE-Proton7-22", TagKind::Proton, "GE-Proton7-22"),
+            ManagedVersion::new("6.21-GE-1", TagKind::Proton, "6.21-GE-1"),
+            ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6.20-GE-1"),
+        ]);
+        let input = ListCommandInput::new(TagKind::Proton, false, None, managed_versions, String::from("Steam"));
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(
-            &json_path,
-            vec![
-                ManagedVersion::new("6.20-GE-2", TagKind::Proton, ""),
-                ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.19-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.20-GE-2", TagKind::wine(), ""),
-                ManagedVersion::new("6.20-GE-1", TagKind::wine(), ""),
-                ManagedVersion::new("6.19-GE-1", TagKind::wine(), ""),
-                ManagedVersion::new("6.16-GE-3-LoL", TagKind::lol(), ""),
-                ManagedVersion::new("6.16-2-GE-LoL", TagKind::lol(), ""),
-                ManagedVersion::new("6.16-1-GE-LoL", TagKind::lol(), ""),
-            ],
-        );
-
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
-        let steam_path = PathBuf::from("test_resources/assets/config.vdf");
-        path_cfg
-            .expect_steam_config()
-            .once()
-            .returning(move |_| steam_path.clone());
-
-        let lutris_path = PathBuf::from("test_resources/assets/wine.yml");
-        path_cfg
-            .expect_lutris_wine_runner_config()
-            .once()
-            .returning(move |_| lutris_path.clone());
-
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
         let mut stdout = AssertLines::new();
         let mut stderr = AssertLines::new();
-        writer.list(&mut stdout, &mut stderr, args).unwrap();
+        list_test_template(&mut stdout, &mut stderr, input);
 
+        stdout.assert_count(5);
         stdout.assert_line(0, "Proton GE:");
-        stdout.assert_line(1, "* 6.20-GE-2");
-        stdout.assert_line(2, "* 6.20-GE-1");
-        stdout.assert_line(3, "* 6.19-GE-1");
+        stdout.assert_line(1, "* GE-Proton7-22");
+        stdout.assert_line(2, "* 6.21-GE-1");
+        stdout.assert_line(3, "* 6.20-GE-1");
         stdout.assert_line(4, "");
-        stdout.assert_line(5, "Wine GE:");
-        stdout.assert_line(6, "* 6.20-GE-2");
-        stdout.assert_line(7, "* 6.20-GE-1");
-        stdout.assert_line(8, "* 6.19-GE-1");
-        stdout.assert_line(9, "");
-        stdout.assert_line(10, "Wine GE (LoL):");
-        stdout.assert_line(11, "* 6.16-GE-3-LoL");
-        stdout.assert_line(12, "* 6.16-2-GE-LoL");
-        stdout.assert_line(13, "* 6.16-1-GE-LoL");
-        stdout.assert_line(14, "");
     }
 
     #[test]
-    fn list_all_with_in_use_version() {
-        let args = ListCommandInput::new(None, false);
-        let fs_mng = MockFilesystemManager::new();
-        let ge_downloader = MockDownloader::new();
-
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(
-            &json_path,
-            vec![
-                ManagedVersion::new("6.21-GE-2", TagKind::Proton, "Proton-6.21-GE-2"),
-                ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.19-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-1", TagKind::wine(), "lutris-ge-6.21-1-x86_64"),
-                ManagedVersion::new("6.20-GE-1", TagKind::wine(), ""),
-                ManagedVersion::new("6.19-GE-1", TagKind::wine(), ""),
-                ManagedVersion::new("6.16-GE-3-LoL", TagKind::lol(), ""),
-                ManagedVersion::new("6.16-2-GE-LoL", TagKind::lol(), ""),
-                ManagedVersion::new("6.16-1-GE-LoL", TagKind::lol(), ""),
-            ],
+    fn list_steam_versions_with_in_use_info() {
+        let managed_versions = ManagedVersions::new(vec![
+            ManagedVersion::new("GE-Proton7-22", TagKind::Proton, "GE-Proton7-22"),
+            ManagedVersion::new("6.21-GE-1", TagKind::Proton, "6.21-GE-1"),
+            ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6.20-GE-1"),
+        ]);
+        let input = ListCommandInput::new(
+            TagKind::Proton,
+            false,
+            Some(String::from("GE-Proton7-22")),
+            managed_versions,
+            String::from("Steam"),
         );
 
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
-        let steam_path = PathBuf::from("test_resources/assets/config.vdf");
-        path_cfg
-            .expect_steam_config()
-            .once()
-            .returning(move |_| steam_path.clone());
-
-        let lutris_path = PathBuf::from("test_resources/assets/wine.yml");
-        path_cfg
-            .expect_lutris_wine_runner_config()
-            .once()
-            .returning(move |_| lutris_path.clone());
-
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
         let mut stdout = AssertLines::new();
         let mut stderr = AssertLines::new();
-        writer.list(&mut stdout, &mut stderr, args).unwrap();
+        list_test_template(&mut stdout, &mut stderr, input);
 
+        stdout.assert_count(5);
         stdout.assert_line(0, "Proton GE:");
-        stdout.assert_line(1, "* 6.21-GE-2 - In use by Steam");
-        stdout.assert_line(2, "* 6.20-GE-1");
-        stdout.assert_line(3, "* 6.19-GE-1");
+        stdout.assert_line(1, "* GE-Proton7-22 - In use by Steam");
+        stdout.assert_line(2, "* 6.21-GE-1");
+        stdout.assert_line(3, "* 6.20-GE-1");
         stdout.assert_line(4, "");
-        stdout.assert_line(5, "Wine GE:");
-        stdout.assert_line(6, "* 6.21-GE-1 - In use by Lutris");
-        stdout.assert_line(7, "* 6.20-GE-1");
-        stdout.assert_line(8, "* 6.19-GE-1");
-        stdout.assert_line(9, "");
-        stdout.assert_line(10, "Wine GE (LoL):");
-        stdout.assert_line(11, "* 6.16-GE-3-LoL");
-        stdout.assert_line(12, "* 6.16-2-GE-LoL");
-        stdout.assert_line(13, "* 6.16-1-GE-LoL");
-        stdout.assert_line(14, "");
     }
 
     #[test]
