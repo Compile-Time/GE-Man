@@ -3,6 +3,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::{fs, io};
 
+use crate::compat_tool_app::ApplicationConfig;
 use anyhow::{anyhow, bail, Context};
 use ge_man_lib::archive;
 use ge_man_lib::config::{LutrisConfig, SteamConfig};
@@ -20,6 +21,15 @@ const LUTRIS_INITIAL_WINE_RUNNER_CONFIG: &str = r#"
 wine:
   version: VERSION
 "#;
+
+pub fn in_use_compat_tool_dir_name(config_file_path: &Path, kind: &TagKind) -> anyhow::Result<String> {
+    debug!(
+        "Reading currently used compatibility tool version from the following config file: {}",
+        config_file_path.display()
+    );
+    let config = ApplicationConfig::create_copy(kind, config_file_path)?;
+    Ok(config.version_dir_name().clone())
+}
 
 #[cfg_attr(test, automock)]
 pub trait FilesystemManager {

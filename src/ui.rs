@@ -5,14 +5,14 @@ use ge_man_lib::archive;
 use ge_man_lib::config::{LutrisConfig, SteamConfig};
 use ge_man_lib::download::response::DownloadedAssets;
 use ge_man_lib::download::{DownloadRequest, GeDownload};
-use ge_man_lib::error::{GithubError, LutrisConfigError, SteamConfigError};
+use ge_man_lib::error::{GithubError, LutrisConfigError};
 use ge_man_lib::tag::TagKind;
-use itertools::Itertools;
 use log::debug;
 
 use crate::args::{
-    AddArgs, ApplyArgs, CheckArgs, CopyUserSettingsArgs, ForgetArgs, ListArgs, MigrationArgs, RemoveArgs,
+    AddArgs, ApplyArgs, CheckArgs, CopyUserSettingsArgs, ForgetArgs, ListCommandInput, MigrationArgs, RemoveArgs,
 };
+use crate::compat_tool_app::AppConfig;
 use crate::data::{ManagedVersion, ManagedVersions};
 use crate::filesystem::FilesystemManager;
 use crate::path::{overrule, PathConfiguration};
@@ -25,47 +25,6 @@ any external change by GE-Man will not take effect and the new version can not b
  To select the latest version you have two options:
  \t1. Restart Steam to select the new version in Steam (which then requires a second restart for Steam to register the change).
  \t2. Close Steam and run the apply command for your desired version. On the next start Steam will use the applied version.";
-
-trait AppConfig {
-    fn version_dir_name(&self) -> String;
-    fn kind(&self) -> String;
-}
-
-impl AppConfig for SteamConfig {
-    fn version_dir_name(&self) -> String {
-        self.proton_version()
-    }
-
-    fn kind(&self) -> String {
-        String::from("Steam")
-    }
-}
-
-impl AppConfig for LutrisConfig {
-    fn version_dir_name(&self) -> String {
-        self.wine_version()
-    }
-
-    fn kind(&self) -> String {
-        String::from("Lutris")
-    }
-}
-
-trait AppConfigError {
-    fn kind(&self) -> String;
-}
-
-impl AppConfigError for SteamConfigError {
-    fn kind(&self) -> String {
-        String::from("Steam")
-    }
-}
-
-impl AppConfigError for LutrisConfigError {
-    fn kind(&self) -> String {
-        String::from("Lutris")
-    }
-}
 
 /// Handles user interaction and user feedback. This struct basically ties everything together to provide the
 /// functionality of each terminal command.
@@ -88,21 +47,10 @@ impl<'a> TerminalWriter<'a> {
         }
     }
 
-    fn create_list_line(
-        &self,
-        version: ManagedVersion,
-        wine_version_dir_name: Option<&String>,
-        proton_version_dir_name: Option<&String>,
-    ) -> String {
-        if let Some(dir) = wine_version_dir_name {
+    fn list_line(&self, version: &ManagedVersion, compat_tool_dir_name: Option<&String>, app_name: &str) -> String {
+        if let Some(dir) = compat_tool_dir_name {
             if dir.eq(version.directory_name()) {
-                return format!("{} - In use by Lutris", version.tag());
-            }
-        }
-
-        if let Some(dir) = proton_version_dir_name {
-            if dir.eq(version.directory_name()) {
-                return format!("{} - In use by Steam", version.tag());
+                return format!("{} - In use by {}", version.tag(), app_name);
             }
         }
 
@@ -124,75 +72,47 @@ impl<'a> TerminalWriter<'a> {
             .context(format!("Could not write managed_versions.json to {}", path.display()))
     }
 
-    pub fn list(&self, stdout: &mut impl Write, stderr: &mut impl Write, args: ListArgs) -> anyhow::Result<()> {
-        let lutris_path = self.path_cfg.lutris_wine_runner_config(overrule::xdg_config_home());
-        debug!(
-            "Reading currently used Lutris version from the following config file: {}",
-            lutris_path.display()
-        );
-        let wine_dir_name = match LutrisConfig::create_copy(&lutris_path) {
-            Ok(config) => Some(config.wine_version()),
-            Err(_) => {
-                writeln!(
-                    stderr,
-                    r###"Lutris config not found - "In use" information can not be provided"###
-                )
-                .unwrap();
-                None
-            }
-        };
+    pub fn list_versions(
+        &self,
+        stdout: &mut impl Write,
+        stderr: &mut impl Write,
+        list_command_input: ListCommandInput,
+    ) {
+        let ListCommandInput {
+            tag_kind,
+            newest,
+            in_use_directory_name,
+            managed_versions,
+            application_name,
+        } = list_command_input;
 
-        let steam_path = self.path_cfg.steam_config(overrule::steam_root());
-        debug!(
-            "Reading currently used Steam version from the following config file: {}",
-            steam_path.display()
-        );
-        let proton_dir_name = match SteamConfig::create_copy(&steam_path) {
-            Ok(config) => Some(config.proton_version()),
-            Err(_) => {
-                writeln!(
-                    stderr,
-                    r###"Steam config not found - "In use" information can not be provided"###
-                )
-                .unwrap();
-                None
-            }
-        };
-
-        let mut managed_versions: Vec<ManagedVersion> = if args.newest {
-            self.read_managed_versions()?.latest_versions()
-        } else {
-            self.read_managed_versions()?.versions()
-        };
-
-        if let Some(kind) = args.kind {
-            managed_versions.retain(|v| v.kind().eq(&kind));
+        if in_use_directory_name.is_none() {
+            writeln!(
+                stderr,
+                r###"{} config not found - "In use" information can not be provided"###,
+                application_name
+            )
+            .unwrap();
         }
 
+        let mut managed_versions = if newest {
+            managed_versions.latest_versions()
+        } else {
+            managed_versions.vec_ref().clone()
+        };
+
         if !managed_versions.is_empty() {
-            // Allow clone of version.kind() due to lifetime not living long enough.
-            #[allow(clippy::clone_on_copy)]
-            let grouped_versions = managed_versions
-                .into_iter()
-                .sorted_unstable_by(|a, b| a.kind().cmp(b.kind()))
-                .group_by(|version| version.kind().clone());
+            writeln!(stdout, "{}:", tag_kind.compatibility_tool_name()).unwrap();
 
-            for (kind, group) in &grouped_versions {
-                writeln!(stdout, "{}:", kind.compatibility_tool_name()).unwrap();
-
-                group
-                    .sorted_unstable_by(|a, b| a.tag().cmp_semver(b.tag()).reverse())
-                    .for_each(|version| {
-                        let line = self.create_list_line(version, wine_dir_name.as_ref(), proton_dir_name.as_ref());
-                        writeln!(stdout, "* {}", line).unwrap();
-                    });
-
-                writeln!(stdout).unwrap();
+            managed_versions.sort_unstable_by(|a, b| a.tag().cmp_semver(b.tag()).reverse());
+            for version in &managed_versions {
+                let line = self.list_line(version, in_use_directory_name.as_ref(), &application_name);
+                writeln!(stdout, "* {}", line).unwrap();
             }
+            writeln!(stdout).unwrap();
         } else {
             writeln!(stdout, "No versions installed").unwrap();
         }
-        Ok(())
     }
 
     pub fn add(&self, stdout: &mut impl Write, args: AddArgs) -> anyhow::Result<()> {
@@ -635,7 +555,7 @@ mod tests {
 
     #[test]
     fn list_newest_output() {
-        let args = ListArgs::new(None, true);
+        let args = ListCommandInput::new(None, true);
         let fs_mng = MockFilesystemManager::new();
         let ge_downloader = MockDownloader::new();
 
@@ -686,7 +606,7 @@ mod tests {
 
     #[test]
     fn list_newest_output_with_in_use_version() {
-        let args = ListArgs::new(None, true);
+        let args = ListCommandInput::new(None, true);
         let fs_mng = MockFilesystemManager::new();
         let ge_downloader = MockDownloader::new();
 
@@ -737,7 +657,7 @@ mod tests {
 
     #[test]
     fn list_all() {
-        let args = ListArgs::new(None, false);
+        let args = ListCommandInput::new(None, false);
         let fs_mng = MockFilesystemManager::new();
         let ge_downloader = MockDownloader::new();
 
@@ -800,7 +720,7 @@ mod tests {
 
     #[test]
     fn list_all_with_in_use_version() {
-        let args = ListArgs::new(None, false);
+        let args = ListCommandInput::new(None, false);
         let fs_mng = MockFilesystemManager::new();
         let ge_downloader = MockDownloader::new();
 

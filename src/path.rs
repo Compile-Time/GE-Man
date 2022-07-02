@@ -167,6 +167,22 @@ pub trait PathConfiguration {
 
         Ok(())
     }
+
+    /// Returns the Steam compatibility tools folder or the Lutris runners folder.
+    fn application_compatibility_tools_dir(&self, kind: &TagKind) -> PathBuf {
+        match kind {
+            TagKind::Proton => self.steam_compatibility_tools_dir(overrule::steam_root()),
+            TagKind::Wine { .. } => self.lutris_runners_dir(overrule::xdg_data_home()),
+        }
+    }
+
+    /// Returns the Steam configuration file path or the Lutris Wine runner configuration file path.
+    fn application_config_file(&self, kind: &TagKind) -> PathBuf {
+        match kind {
+            TagKind::Proton => self.steam_config(overrule::steam_root()),
+            TagKind::Wine { .. } => self.lutris_wine_runner_config(overrule::xdg_config_home()),
+        }
+    }
 }
 
 pub struct PathConfig {}

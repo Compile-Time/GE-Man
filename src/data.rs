@@ -195,9 +195,18 @@ impl ManagedVersions {
         versions
     }
 
-    #[allow(dead_code)]
-    pub fn versions(&self) -> Vec<ManagedVersion> {
-        self.versions.clone()
+    pub fn vec_mut(&mut self) -> &mut Vec<ManagedVersion> {
+        &mut self.versions
+    }
+
+    pub fn vec_ref(&self) -> &Vec<ManagedVersion> {
+        &self.versions
+    }
+}
+
+impl Clone for ManagedVersions {
+    fn clone(&self) -> Self {
+        ManagedVersions::new(self.versions.clone())
     }
 }
 
@@ -329,7 +338,7 @@ mod managed_versions_tests {
         let mut managed_versions = ManagedVersions::new(vec![version]);
         managed_versions.remove(&Version::proton("6.20-GE-1")).unwrap();
         assert!(!managed_versions.find_version(&Version::proton("6.20-GE-1")).is_some());
-        assert!(managed_versions.versions().is_empty());
+        assert!(managed_versions.vec_mut().is_empty());
     }
 
     #[test]
@@ -342,8 +351,8 @@ mod managed_versions_tests {
     #[test]
     fn get_all_versions() {
         let managed_versions = ManagedVersions::new(VERSIONS.clone());
-        assert_eq!(managed_versions.versions(), *VERSIONS);
-        assert_eq!(managed_versions.versions().len(), 6);
+        assert_eq!(managed_versions.vec_mut(), *VERSIONS);
+        assert_eq!(managed_versions.vec_mut().len(), 6);
     }
 
     #[test]

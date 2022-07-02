@@ -1,11 +1,20 @@
 use std::path::PathBuf;
 
 use clap::ArgMatches;
-
-use ge_man_lib::tag::{Tag, TagKind};
+use ge_man_lib::tag::{Tag, TagKind, WineTagKind};
 
 use crate::clap::{arg_group_names, arg_names, command_names};
+use crate::data::ManagedVersions;
+use crate::filesystem;
+use crate::path::PathConfiguration;
 use crate::version::Version;
+
+fn application_name(kind: &TagKind) -> String {
+    match kind {
+        TagKind::Proton => String::from("Steam"),
+        TagKind::Wine { .. } => String::from("Lutris"),
+    }
+}
 
 #[derive(Debug)]
 pub struct TagArg {
@@ -57,24 +66,61 @@ impl TryFrom<&ArgMatches> for TagArg {
     }
 }
 
-pub struct ListArgs {
-    pub kind: Option<TagKind>,
+pub struct ListCommandInput {
+    pub tag_kind: TagKind,
     pub newest: bool,
+    pub in_use_directory_name: Option<String>,
+    pub managed_versions: ManagedVersions,
+    pub application_name: String,
 }
 
-impl ListArgs {
-    pub fn new(kind: Option<TagKind>, newest: bool) -> Self {
-        ListArgs { kind, newest }
+impl ListCommandInput {
+    pub fn new(
+        tag_kind: TagKind,
+        newest: bool,
+        in_use_directory_name: Option<String>,
+        managed_versions: ManagedVersions,
+        application_name: String,
+    ) -> Self {
+        Self {
+            tag_kind,
+            newest,
+            in_use_directory_name,
+            managed_versions,
+            application_name,
+        }
     }
-}
 
-impl From<ArgMatches> for ListArgs {
-    fn from(matches: ArgMatches) -> Self {
-        let matches = matches.subcommand_matches(command_names::LIST).unwrap();
-        let newest = matches.is_present(arg_names::NEWEST_ARG);
-        let kind = TagArg::try_from(matches).ok().map(|tag| tag.kind);
+    pub fn create_from(
+        arg_matches: ArgMatches,
+        managed_versions: ManagedVersions,
+        path_cfg: &impl PathConfiguration,
+    ) -> Vec<ListCommandInput> {
+        let matches = arg_matches.subcommand_matches(command_names::LIST).unwrap();
+        let tag_kind = TagArg::try_from(matches).ok().map(|tag| tag.kind);
 
-        ListArgs::new(kind, newest)
+        vec![
+            TagKind::Proton,
+            TagKind::Wine {
+                kind: WineTagKind::WineGe,
+            },
+        ]
+        .into_iter()
+        .filter(|kind| Some(kind).eq(&tag_kind.as_ref()) || tag_kind.is_none())
+        .map(|kind| {
+            let app_config_file = path_cfg.application_config_file(&kind);
+
+            let newest = matches.is_present(arg_names::NEWEST_ARG);
+            let in_use_directory_name = filesystem::in_use_compat_tool_dir_name(&app_config_file, &kind).ok();
+
+            let mut managed_versions = managed_versions.clone();
+            managed_versions.vec_mut().retain(|version| version.kind().eq(&kind));
+
+            let app_name = application_name(&kind);
+
+            ListCommandInput::new(kind, newest, in_use_directory_name, managed_versions, app_name)
+        })
+        .collect()
     }
 }
 
@@ -322,9 +368,9 @@ mod tests {
         assert_tag_arg(args.tag_arg, expected.tag_arg);
     }
 
-    fn list_test_template(args: Vec<&str>, expected: ListArgs) {
+    fn list_test_template(args: Vec<&str>, expected: ListCommandInput) {
         let matches = setup_clap().try_get_matches_from(args).unwrap();
-        let args = ListArgs::from(matches);
+        let args = ListCommandInput::from(matches);
 
         assert_eq!(args.kind, expected.kind);
         assert_eq!(args.newest, expected.newest);
@@ -573,21 +619,21 @@ mod tests {
     #[test_case("-l"; "Forget a Wine GE LoL version")]
     fn list_with_kind_filters(kind: &str) {
         let args = vec!["geman", "list", kind];
-        let expected = ListArgs::new(Some(kind_str_to_enum(kind)), false);
+        let expected = ListCommandInput::new(Some(kind_str_to_enum(kind)), false);
         list_test_template(args, expected);
     }
 
     #[test]
     fn list_with_no_args() {
         let args = vec!["geman", "list"];
-        let expected = ListArgs::new(None, false);
+        let expected = ListCommandInput::new(None, false);
         list_test_template(args, expected);
     }
 
     #[test]
     fn list_with_latest() {
         let args = vec!["geman", "list", "-n"];
-        let expected = ListArgs::new(None, true);
+        let expected = ListCommandInput::new(None, true);
         list_test_template(args, expected);
     }
 }

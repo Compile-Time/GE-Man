@@ -724,7 +724,6 @@ dependencies = [
  "ge-man-lib",
  "httpmock",
  "indicatif",
- "itertools",
  "lazy_static",
  "log",
  "mockall",

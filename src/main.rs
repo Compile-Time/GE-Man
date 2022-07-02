@@ -1,15 +1,16 @@
 use std::io;
 use std::io::Write;
 
-use anyhow::bail;
+use anyhow::{bail, Context};
 use ge_man_lib::download::GeDownloader;
 
 use ge_man::args::{
-    AddArgs, ApplyArgs, CheckArgs, CopyUserSettingsArgs, ForgetArgs, ListArgs, MigrationArgs, RemoveArgs,
+    AddArgs, ApplyArgs, CheckArgs, CopyUserSettingsArgs, ForgetArgs, ListCommandInput, MigrationArgs, RemoveArgs,
 };
 use ge_man::clap::command_names::{
     ADD, APPLY, CHECK, FORGET, LIST, MIGRATE, PROTON_USER_SETTINGS, REMOVE, USER_SETTINGS_COPY,
 };
+use ge_man::data::ManagedVersions;
 use ge_man::filesystem::FsMng;
 use ge_man::path::{overrule, PathConfig, PathConfiguration};
 use ge_man::ui::TerminalWriter;
@@ -40,7 +41,19 @@ fn main() -> anyhow::Result<()> {
 
     let output_writer = TerminalWriter::new(&compatibility_tool_downloader, &fs_mng, &path_config);
     let result = match matches.subcommand_name() {
-        Some(LIST) => output_writer.list(&mut out_handle, &mut err_handle, ListArgs::from(matches)),
+        Some(LIST) => {
+            let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
+            let managed_versions = ManagedVersions::from_file(&managed_versions_path).context(format!(
+                "Could not read managed_versions.json from {}",
+                managed_versions_path.display()
+            ))?;
+            let inputs = ListCommandInput::create_from(matches, managed_versions, &path_config);
+
+            for input in inputs {
+                output_writer.list_versions(&mut out_handle, &mut err_handle, input);
+            }
+            Ok(())
+        }
         Some(ADD) => output_writer.add(&mut out_handle, AddArgs::from(matches)),
         Some(REMOVE) => output_writer.remove(&mut out_handle, RemoveArgs::from(matches)),
         Some(CHECK) => {
