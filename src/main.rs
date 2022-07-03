@@ -5,7 +5,8 @@ use anyhow::{bail, Context};
 use ge_man_lib::download::GeDownloader;
 
 use ge_man::args::{
-    AddArgs, ApplyArgs, CheckArgs, CopyUserSettingsArgs, ForgetArgs, ListCommandInput, MigrationArgs, RemoveArgs,
+    AddCommandInput, ApplyCommandInput, CheckArgs, CopyUserSettingsArgs, ForgetArgs, GivenVersion, ListCommandInput,
+    MigrationArgs, RemoveArgs,
 };
 use ge_man::clap::command_names::{
     ADD, APPLY, CHECK, FORGET, LIST, MIGRATE, PROTON_USER_SETTINGS, REMOVE, USER_SETTINGS_COPY,
@@ -39,7 +40,7 @@ fn main() -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut out_handle = stdout.lock();
 
-    let output_writer = TerminalWriter::new(&compatibility_tool_downloader, &fs_mng, &path_config);
+    let command_executor = TerminalWriter::new(&compatibility_tool_downloader, &fs_mng, &path_config);
     let result = match matches.subcommand_name() {
         Some(LIST) => {
             let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
@@ -47,31 +48,60 @@ fn main() -> anyhow::Result<()> {
                 "Could not read managed_versions.json from {}",
                 managed_versions_path.display()
             ))?;
-            let inputs = ListCommandInput::create_from(matches, managed_versions, &path_config);
+            let inputs = ListCommandInput::create_from(&matches, managed_versions, &path_config);
 
             for input in inputs {
-                output_writer.list_versions(&mut out_handle, &mut err_handle, input);
+                command_executor.list_versions(&mut out_handle, &mut err_handle, input);
             }
             Ok(())
         }
-        Some(ADD) => output_writer.add(&mut out_handle, AddArgs::from(matches)),
-        Some(REMOVE) => output_writer.remove(&mut out_handle, RemoveArgs::from(matches)),
-        Some(CHECK) => {
-            output_writer.check(&mut out_handle, &mut err_handle, CheckArgs::from(matches));
+        Some(ADD) => {
+            let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
+            let managed_versions = ManagedVersions::from_file(&managed_versions_path)?;
+            let add_input = AddCommandInput::create_from(&matches, managed_versions);
+
+            // TODO: Add a struct for this return type.
+            let new_and_managed_versions = command_executor.add(&mut out_handle, add_input)?;
+            new_and_managed_versions
+                .managed_versions
+                .write_to_file(&managed_versions_path)?;
+            writeln!(out_handle, "Successfully added version").unwrap();
+
+            if AddCommandInput::apply_present(&matches) {
+                let apply_input = ApplyCommandInput::new(
+                    GivenVersion::Explicit {
+                        version: Box::new(new_and_managed_versions.version),
+                    },
+                    new_and_managed_versions.managed_versions,
+                );
+                command_executor.apply(&mut out_handle, apply_input)?;
+            }
+
             Ok(())
         }
-        Some(MIGRATE) => output_writer.migrate(&mut out_handle, MigrationArgs::from(matches)),
-        Some(APPLY) => output_writer.apply_to_app_config(&mut out_handle, ApplyArgs::from(matches)),
+        Some(REMOVE) => command_executor.remove(&mut out_handle, RemoveArgs::from(matches)),
+        Some(CHECK) => {
+            command_executor.check(&mut out_handle, &mut err_handle, CheckArgs::from(matches));
+            Ok(())
+        }
+        Some(MIGRATE) => command_executor.migrate(&mut out_handle, MigrationArgs::from(matches)),
+        Some(APPLY) => {
+            let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
+            let managed_versions = ManagedVersions::from_file(&managed_versions_path)?;
+
+            let input = ApplyCommandInput::create_from(&matches, managed_versions);
+            command_executor.apply(&mut out_handle, input)
+        }
         Some(PROTON_USER_SETTINGS) => {
             let sub_cmd_matches = matches.subcommand_matches(PROTON_USER_SETTINGS).unwrap();
             match sub_cmd_matches.subcommand_name() {
                 Some(USER_SETTINGS_COPY) => {
-                    output_writer.copy_user_settings(&mut out_handle, CopyUserSettingsArgs::from(matches))
+                    command_executor.copy_user_settings(&mut out_handle, CopyUserSettingsArgs::from(matches))
                 }
                 _ => Ok(()),
             }
         }
-        Some(FORGET) => output_writer.forget(&mut out_handle, ForgetArgs::from(matches)),
+        Some(FORGET) => command_executor.forget(&mut out_handle, ForgetArgs::from(matches)),
         None => Ok(()),
         _ => Ok(()),
     };

@@ -3,7 +3,6 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::{fs, io};
 
-use crate::compat_tool_app::ApplicationConfig;
 use anyhow::{anyhow, bail, Context};
 use ge_man_lib::archive;
 use ge_man_lib::config::{LutrisConfig, SteamConfig};
@@ -12,6 +11,7 @@ use log::debug;
 #[cfg(test)]
 use mockall::{automock, predicate::*};
 
+use crate::compat_tool_app::ApplicationConfig;
 use crate::data::ManagedVersion;
 use crate::path::{overrule, PathConfiguration, LUTRIS_WINE_RUNNERS_DIR, STEAM_COMP_DIR};
 use crate::version::{Version, Versioned};
@@ -146,6 +146,7 @@ impl<'a> FilesystemManager for FsMng<'a> {
     }
 
     fn apply_to_app_config(&self, version: &ManagedVersion) -> anyhow::Result<()> {
+        // TODO: Move match arms code into private methods.
         match version.kind() {
             TagKind::Proton => {
                 let steam_cfg_path = self.path_config.steam_config(overrule::steam_root());

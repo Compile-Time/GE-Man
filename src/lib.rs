@@ -1,4 +1,5 @@
 mod compat_tool_app;
+mod message;
 
 pub mod args;
 pub mod clap;

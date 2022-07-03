@@ -7,7 +7,7 @@ use crate::clap::{arg_group_names, arg_names, command_names};
 use crate::data::ManagedVersions;
 use crate::filesystem;
 use crate::path::PathConfiguration;
-use crate::version::Version;
+use crate::version::{Version, Versioned};
 
 fn application_name(kind: &TagKind) -> String {
     match kind {
@@ -92,7 +92,7 @@ impl ListCommandInput {
     }
 
     pub fn create_from(
-        arg_matches: ArgMatches,
+        arg_matches: &ArgMatches,
         managed_versions: ManagedVersions,
         path_cfg: &impl PathConfiguration,
     ) -> Vec<ListCommandInput> {
@@ -125,30 +125,44 @@ impl ListCommandInput {
 }
 
 #[derive(Debug)]
-pub struct AddArgs {
-    pub tag_arg: TagArg,
-    pub skip_checksum: bool,
-    pub apply: bool,
+pub enum GivenVersion {
+    Explicit { version: Box<dyn Versioned> },
+    Latest { kind: TagKind },
 }
 
-impl AddArgs {
-    pub fn new(tag: TagArg, skip_checksum: bool, apply: bool) -> Self {
-        AddArgs {
-            tag_arg: tag,
+#[derive(Debug)]
+pub struct AddCommandInput {
+    pub version: GivenVersion,
+    pub skip_checksum: bool,
+    pub managed_versions: ManagedVersions,
+}
+
+impl AddCommandInput {
+    pub fn new(version: GivenVersion, skip_checksum: bool, managed_versions: ManagedVersions) -> Self {
+        Self {
+            version,
             skip_checksum,
-            apply,
+            managed_versions,
         }
     }
-}
 
-impl From<ArgMatches> for AddArgs {
-    fn from(matches: ArgMatches) -> Self {
+    pub fn create_from(matches: &ArgMatches, managed_versions: ManagedVersions) -> Self {
         let matches = matches.subcommand_matches(command_names::ADD).unwrap();
-        let tag = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
+        let tag_arg = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
         let skip_checksum = matches.is_present(arg_names::SKIP_CHECKSUM_ARG);
-        let apply = matches.is_present(arg_names::APPLY_ARG);
 
-        AddArgs::new(tag, skip_checksum, apply)
+        let version = match tag_arg.tag {
+            Some(tag) => GivenVersion::Explicit {
+                version: Box::new(Version::new(tag, tag_arg.kind)),
+            },
+            None => GivenVersion::Latest { kind: tag_arg.kind },
+        };
+        AddCommandInput::new(version, skip_checksum, managed_versions)
+    }
+
+    pub fn apply_present(matches: &ArgMatches) -> bool {
+        let matches = matches.subcommand_matches(command_names::ADD).unwrap();
+        matches.is_present(arg_names::APPLY_ARG)
     }
 }
 
@@ -225,21 +239,30 @@ impl From<ArgMatches> for MigrationArgs {
     }
 }
 
-pub struct ApplyArgs {
-    pub tag_arg: TagArg,
+pub struct ApplyCommandInput {
+    pub version: GivenVersion,
+    pub managed_versions: ManagedVersions,
 }
 
-impl ApplyArgs {
-    pub fn new(tag_arg: TagArg) -> Self {
-        ApplyArgs { tag_arg }
+impl ApplyCommandInput {
+    pub fn new(version: GivenVersion, managed_versions: ManagedVersions) -> Self {
+        Self {
+            version,
+            managed_versions,
+        }
     }
-}
 
-impl From<ArgMatches> for ApplyArgs {
-    fn from(matches: ArgMatches) -> Self {
+    pub fn create_from(matches: &ArgMatches, managed_versions: ManagedVersions) -> Self {
         let matches = matches.subcommand_matches(command_names::APPLY).unwrap();
         let tag_arg = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
-        ApplyArgs::new(tag_arg)
+
+        let version = match tag_arg.tag {
+            Some(tag) => GivenVersion::Explicit {
+                version: Box::new(Version::new(tag, tag_arg.kind)),
+            },
+            None => GivenVersion::Latest { kind: tag_arg.kind },
+        };
+        ApplyCommandInput::new(version, managed_versions)
     }
 }
 
@@ -317,9 +340,9 @@ mod tests {
         }
     }
 
-    fn add_test_template(args: Vec<&str>, expected: AddArgs) {
+    fn add_test_template(args: Vec<&str>, expected: AddCommandInput) {
         let matches = setup_clap().try_get_matches_from(args).unwrap();
-        let args = AddArgs::from(matches);
+        let args = AddCommandInput::from(matches);
 
         assert_tag_arg(args.tag_arg, expected.tag_arg);
         assert_eq!(args.skip_checksum, expected.skip_checksum);
@@ -348,9 +371,9 @@ mod tests {
         assert_eq!(args.source_path, expected.source_path);
     }
 
-    fn apply_test_template(args: Vec<&str>, expected: ApplyArgs) {
+    fn apply_test_template(args: Vec<&str>, expected: ApplyCommandInput) {
         let matches = setup_clap().try_get_matches_from(args).unwrap();
-        let args = ApplyArgs::from(matches);
+        let args = ApplyCommandInput::from(matches);
 
         assert_tag_arg(args.tag_arg, expected.tag_arg);
     }
@@ -375,7 +398,7 @@ mod tests {
     #[test_case("-l"; "Add specific Wine GE LoL version")]
     fn add_specific_proton_tag(kind: &str) {
         let args = vec!["geman", "add", kind, "6.20-GE-1"];
-        let expected = AddArgs::new(
+        let expected = AddCommandInput::new(
             TagArg::new(Some(Tag::from("6.20-GE-1")), kind_str_to_enum(kind)),
             false,
             false,
@@ -388,7 +411,7 @@ mod tests {
     #[test_case("-l"; "Add latest Wine GE LoL version")]
     fn add_latest_tag(kind: &str) {
         let args = vec!["geman", "add", kind];
-        let expected = AddArgs::new(TagArg::new(None, kind_str_to_enum(kind)), false, false);
+        let expected = AddCommandInput::new(TagArg::new(None, kind_str_to_enum(kind)), false, false);
         add_test_template(args, expected);
     }
 
@@ -404,14 +427,14 @@ mod tests {
     #[test]
     fn add_with_checksum_skip() {
         let args = vec!["geman", "add", "-p", "--skip-checksum"];
-        let expected = AddArgs::new(TagArg::new(None, TagKind::Proton), true, false);
+        let expected = AddCommandInput::new(TagArg::new(None, TagKind::Proton), true, false);
         add_test_template(args, expected);
     }
 
     #[test]
     fn add_with_apply() {
         let args = vec!["geman", "add", "-p", "--apply"];
-        let expected = AddArgs::new(TagArg::new(None, TagKind::Proton), false, true);
+        let expected = AddCommandInput::new(TagArg::new(None, TagKind::Proton), false, true);
         add_test_template(args, expected);
     }
 
@@ -530,7 +553,7 @@ mod tests {
     #[test_case("-l"; "Apply for Wine GE LoL")]
     fn apply_with_all_required_args(kind: &str) {
         let args = vec!["geman", "apply", kind, "6.20-GE-1"];
-        let expected = ApplyArgs::new(TagArg::new(Some(Tag::from("6.20-GE-1")), kind_str_to_enum(kind)));
+        let expected = ApplyCommandInput::new(TagArg::new(Some(Tag::from("6.20-GE-1")), kind_str_to_enum(kind)));
         apply_test_template(args, expected);
     }
 

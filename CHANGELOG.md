@@ -15,6 +15,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 * Changed "Downloading archive" to "Downloading <file name>".
+* Refactored interaction between clap arguments and command handling.
 
 ## [0.1.2] - 2022-06-17
 

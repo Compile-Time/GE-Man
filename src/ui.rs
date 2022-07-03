@@ -10,22 +10,32 @@ use ge_man_lib::tag::TagKind;
 use log::debug;
 
 use crate::args::{
-    AddArgs, ApplyArgs, CheckArgs, CopyUserSettingsArgs, ForgetArgs, ListCommandInput, MigrationArgs, RemoveArgs,
+    AddCommandInput, ApplyCommandInput, CheckArgs, CopyUserSettingsArgs, ForgetArgs, GivenVersion, ListCommandInput,
+    MigrationArgs, RemoveArgs,
 };
 use crate::compat_tool_app::AppConfig;
 use crate::data::{ManagedVersion, ManagedVersions};
 use crate::filesystem::FilesystemManager;
+use crate::message;
 use crate::path::{overrule, PathConfiguration};
 use crate::progress::{DownloadProgressTracker, ExtractionProgressTracker};
 use crate::version::{Version, Versioned};
 
-const PROTON_APPLY_HINT: &str = "Successfully modified Steam config: If Steam is currently running, \
-any external change by GE-Man will not take effect and the new version can not be selected in the Steam settings!
- 
- To select the latest version you have two options:
- \t1. Restart Steam to select the new version in Steam (which then requires a second restart for Steam to register the change).
- \t2. Close Steam and run the apply command for your desired version. On the next start Steam will use the applied version.";
+pub struct NewAndManagedVersions {
+    pub version: ManagedVersion,
+    pub managed_versions: ManagedVersions,
+}
 
+impl NewAndManagedVersions {
+    pub fn new(version: ManagedVersion, managed_versions: ManagedVersions) -> Self {
+        Self {
+            version,
+            managed_versions,
+        }
+    }
+}
+
+// TODO: Rename struct to `CommandExecutor` after refactorings. It does more than just write to a terminal.
 /// Handles user interaction and user feedback. This struct basically ties everything together to provide the
 /// functionality of each terminal command.
 pub struct TerminalWriter<'a> {
@@ -115,25 +125,26 @@ impl<'a> TerminalWriter<'a> {
         }
     }
 
-    pub fn add(&self, stdout: &mut impl Write, args: AddArgs) -> anyhow::Result<()> {
-        let tag = args.tag_arg.value();
-        let kind = args.tag_arg.kind;
-        let mut managed_versions = self.read_managed_versions()?;
+    pub fn add(&self, stdout: &mut impl Write, input: AddCommandInput) -> anyhow::Result<NewAndManagedVersions> {
+        let AddCommandInput {
+            version,
+            skip_checksum,
+            mut managed_versions,
+        } = input;
 
-        let version = if tag.is_some() {
-            Version::new(tag.cloned(), kind)
-        } else {
-            match self.ge_downloader.fetch_release(tag.cloned(), kind) {
+        let version = match version {
+            GivenVersion::Explicit { version: versioned } => Version::from(versioned),
+            GivenVersion::Latest { kind } => match self.ge_downloader.fetch_release(None, kind) {
                 Ok(release) => Version::new(release.tag_name, kind),
                 Err(err) => {
                     return Err(anyhow!(err).context(r#"Could not get latest tag for tagless "add" operation."#))
                 }
-            }
+            },
         };
 
-        if managed_versions.find_version(&version).is_some() {
-            writeln!(stdout, "Version {} is already managed", version)?;
-            return Ok(());
+        if let Some(existing_version) = managed_versions.find_version(&version) {
+            writeln!(stdout, "Version {} is already managed", existing_version)?;
+            return Ok(NewAndManagedVersions::new(existing_version, managed_versions));
         }
 
         let download_tracker = Box::new(DownloadProgressTracker::default());
@@ -141,7 +152,7 @@ impl<'a> TerminalWriter<'a> {
             Some(version.tag().to_string()),
             *version.kind(),
             download_tracker,
-            args.skip_checksum,
+            skip_checksum,
         );
 
         let assets = match self.ge_downloader.download_release_assets(request) {
@@ -169,7 +180,7 @@ impl<'a> TerminalWriter<'a> {
             ..
         } = assets;
 
-        if args.skip_checksum {
+        if skip_checksum {
             writeln!(stdout, "Skipping checksum comparison").unwrap();
         } else {
             write!(stdout, "Performing checksum comparison").unwrap();
@@ -195,15 +206,8 @@ impl<'a> TerminalWriter<'a> {
             .context("Could not add version")?;
         extraction_tracker.finish();
 
-        let version = managed_versions.add(version)?;
-        self.write_managed_versions(managed_versions)?;
-
-        writeln!(stdout, "Successfully added version").unwrap();
-        if args.apply {
-            self.do_apply_to_app_config(stdout, &version)?;
-        }
-
-        Ok(())
+        let new_version = managed_versions.add(version)?;
+        Ok(NewAndManagedVersions::new(new_version, managed_versions))
     }
 
     pub fn remove(&self, stdout: &mut impl Write, args: RemoveArgs) -> anyhow::Result<()> {
@@ -342,48 +346,32 @@ impl<'a> TerminalWriter<'a> {
         Ok(())
     }
 
-    fn do_apply_to_app_config(&self, stdout: &mut impl Write, version: &ManagedVersion) -> anyhow::Result<()> {
-        let (modify_msg, success_msg) = match version.kind() {
-            TagKind::Proton => (
-                format!("Modifying Steam configuration to use {}", version),
-                PROTON_APPLY_HINT,
-            ),
-            TagKind::Wine { .. } => (
-                format!("Modifying Lutris configuration to use {}", version),
-                "Successfully modified Lutris config: Lutris should be restarted for the new settings to take effect.",
-            ),
-        };
+    pub fn apply(&self, stdout: &mut impl Write, input: ApplyCommandInput) -> anyhow::Result<()> {
+        let ApplyCommandInput {
+            version,
+            managed_versions,
+        } = input;
 
-        writeln!(stdout, "{}", modify_msg).unwrap();
-
-        self.fs_mng
-            .apply_to_app_config(version)
-            .context("Could not modify app config")?;
-
-        writeln!(stdout, "{}", success_msg).unwrap();
-
-        Ok(())
-    }
-
-    pub fn apply_to_app_config(&self, stdout: &mut impl Write, args: ApplyArgs) -> anyhow::Result<()> {
-        let managed_versions = self.read_managed_versions()?;
-
-        let version = if args.tag_arg.tag.is_some() {
-            let version = args.tag_arg.version();
-            match managed_versions.find_version(&version) {
+        let version = match version {
+            GivenVersion::Explicit { version } => match managed_versions.find_version(version.as_ref()) {
                 Some(v) => v,
                 None => bail!("Given version is not managed"),
-            }
-        } else {
-            let kind = args.tag_arg.kind;
-            if let Some(version) = managed_versions.find_latest_by_kind(&kind) {
-                version
-            } else {
-                bail!("No managed versions exist");
-            }
+            },
+            GivenVersion::Latest { kind } => match managed_versions.find_latest_by_kind(&kind) {
+                Some(v) => v,
+                None => bail!("No managed versions exist"),
+            },
         };
 
-        self.do_apply_to_app_config(stdout, &version)
+        writeln!(stdout, "{}", message::apply::modifying_config(&version)).unwrap();
+
+        self.fs_mng
+            .apply_to_app_config(&version)
+            .context("Could not modify app config")?;
+
+        writeln!(stdout, "{}", message::apply::modify_config_success(version.kind())).unwrap();
+
+        Ok(())
     }
 
     pub fn copy_user_settings(&self, stdout: &mut impl Write, args: CopyUserSettingsArgs) -> anyhow::Result<()> {
@@ -664,7 +652,7 @@ mod tests {
     #[test]
     fn add_successful_output() {
         let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = AddArgs::new(tag_arg, true, false);
+        let args = AddCommandInput::new(tag_arg, true, false);
 
         let mut ge_downloader = MockDownloader::new();
         ge_downloader.expect_download_release_assets().once().returning(|_| {
@@ -706,7 +694,7 @@ mod tests {
     #[test]
     fn add_with_checksum_comparison_successful_output() {
         let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = AddArgs::new(tag_arg, false, false);
+        let args = AddCommandInput::new(tag_arg, false, false);
 
         let mut ge_downloader = MockDownloader::new();
         ge_downloader.expect_download_release_assets().once().returning(|_| {
@@ -754,7 +742,7 @@ mod tests {
     #[test]
     fn add_specific_version_which_is_already_managed_again_expect_message_about_already_being_managed() {
         let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = AddArgs::new(tag_arg, false, false);
+        let args = AddCommandInput::new(tag_arg, false, false);
 
         let ge_downloader = MockDownloader::new();
         let mut fs_mng = MockFilesystemManager::new();
@@ -781,7 +769,7 @@ mod tests {
     #[test]
     fn add_latest_version_which_is_already_managed_again_expect_message_about_already_being_managed() {
         let tag_arg = TagArg::new(None, TagKind::Proton);
-        let args = AddArgs::new(tag_arg, false, false);
+        let args = AddCommandInput::new(tag_arg, false, false);
 
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_setup_version().never();
@@ -813,7 +801,7 @@ mod tests {
     #[test]
     fn add_with_apply_should_modify_app_config() {
         let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = AddArgs::new(tag_arg, false, true);
+        let args = AddCommandInput::new(tag_arg, false, true);
 
         let mut ge_downloader = MockDownloader::new();
         ge_downloader.expect_download_release_assets().once().returning(|_| {
@@ -1162,7 +1150,7 @@ mod tests {
     #[test]
     fn apply_to_app_config_for_non_existent_version() {
         let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = ApplyArgs::new(tag_arg);
+        let args = ApplyCommandInput::new(tag_arg);
 
         let ge_downloader = MockDownloader::new();
         let fs_mng = MockFilesystemManager::new();
@@ -1180,7 +1168,7 @@ mod tests {
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
-        let result = writer.apply_to_app_config(&mut stdout, args);
+        let result = writer.apply(&mut stdout, args);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -1191,7 +1179,7 @@ mod tests {
     #[test]
     fn apply_to_app_config_for_latest_version() {
         let tag_arg = TagArg::new(None, TagKind::Proton);
-        let args = ApplyArgs::new(tag_arg);
+        let args = ApplyCommandInput::new(tag_arg);
 
         let ge_downloader = MockDownloader::new();
         let mut fs_mng = MockFilesystemManager::new();
@@ -1213,7 +1201,7 @@ mod tests {
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
-        writer.apply_to_app_config(&mut stdout, args).unwrap();
+        writer.apply(&mut stdout, args).unwrap();
 
         stdout.assert_line(0, "Modifying Steam configuration to use 6.20-GE-1 (Proton)");
         stdout.assert_line(1, PROTON_APPLY_HINT);
@@ -1222,7 +1210,7 @@ mod tests {
     #[test]
     fn apply_to_app_config_for_existent_version() {
         let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = ApplyArgs::new(tag_arg);
+        let args = ApplyCommandInput::new(tag_arg);
 
         let ge_downloader = MockDownloader::new();
         let mut fs_mng = MockFilesystemManager::new();
@@ -1244,7 +1232,7 @@ mod tests {
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
-        writer.apply_to_app_config(&mut stdout, args).unwrap();
+        writer.apply(&mut stdout, args).unwrap();
 
         stdout.assert_line(0, "Modifying Steam configuration to use 6.20-GE-1 (Proton)");
         stdout.assert_line(1, PROTON_APPLY_HINT);
@@ -1253,7 +1241,7 @@ mod tests {
     #[test]
     fn apply_to_app_config_fails_with_an_error() {
         let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = ApplyArgs::new(tag_arg);
+        let args = ApplyCommandInput::new(tag_arg);
 
         let ge_downloader = MockDownloader::new();
         let mut fs_mng = MockFilesystemManager::new();
@@ -1278,7 +1266,7 @@ mod tests {
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
-        let result = writer.apply_to_app_config(&mut stdout, args);
+        let result = writer.apply(&mut stdout, args);
         assert!(result.is_err());
 
         stdout.assert_line(0, "Modifying Steam configuration to use 6.20-GE-1 (Proton)");

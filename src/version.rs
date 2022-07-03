@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::fmt;
 use std::fmt::{Display, Formatter};
 
 use ge_man_lib::tag::{Tag, TagKind};
@@ -29,6 +30,15 @@ impl<'a> Ord for dyn Versioned + 'a {
 }
 
 impl<'a> Eq for dyn Versioned + 'a {}
+
+impl<'a> fmt::Debug for dyn Versioned + 'a {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Box<dyn Versioned>")
+            .field("tag", self.tag())
+            .field("kind", self.kind())
+            .finish()
+    }
+}
 
 #[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Version {
@@ -89,6 +99,12 @@ impl<'a> PartialOrd<dyn Versioned + 'a> for Version {
 impl Display for Version {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} ({})", self.tag, self.kind.compatibility_tool_kind())
+    }
+}
+
+impl From<Box<dyn Versioned>> for Version {
+    fn from(versioned: Box<dyn Versioned>) -> Self {
+        Version::new(versioned.tag().clone(), versioned.kind().clone())
     }
 }
 
