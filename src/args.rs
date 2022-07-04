@@ -124,10 +124,31 @@ impl ListCommandInput {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Ord, PartialOrd, Eq)]
 pub enum GivenVersion {
     Explicit { version: Box<dyn Versioned> },
     Latest { kind: TagKind },
+}
+
+impl PartialEq for GivenVersion {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            GivenVersion::Explicit { version } => {
+                if let GivenVersion::Explicit { version: other_version } = other {
+                    version.eq(other_version)
+                } else {
+                    false
+                }
+            }
+            GivenVersion::Latest { kind } => {
+                if let GivenVersion::Latest { kind: other_kind } = other {
+                    kind.eq(other_kind)
+                } else {
+                    false
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -342,11 +363,11 @@ mod tests {
 
     fn add_test_template(args: Vec<&str>, expected: AddCommandInput) {
         let matches = setup_clap().try_get_matches_from(args).unwrap();
-        let args = AddCommandInput::from(matches);
+        let input = AddCommandInput::create_from(&matches, ManagedVersions::default());
 
-        assert_tag_arg(args.tag_arg, expected.tag_arg);
-        assert_eq!(args.skip_checksum, expected.skip_checksum);
-        assert_eq!(args.apply, expected.apply);
+        assert_eq!(input.version, expected.version);
+        assert_eq!(input.skip_checksum, expected.skip_checksum);
+        assert_eq!(input.managed_versions, expected.managed_versions);
     }
 
     fn remove_test_template(args: Vec<&str>, expected: RemoveArgs) {
@@ -373,9 +394,10 @@ mod tests {
 
     fn apply_test_template(args: Vec<&str>, expected: ApplyCommandInput) {
         let matches = setup_clap().try_get_matches_from(args).unwrap();
-        let args = ApplyCommandInput::from(matches);
+        let input = ApplyCommandInput::create_from(&matches, ManagedVersions::default());
 
-        assert_tag_arg(args.tag_arg, expected.tag_arg);
+        assert_eq!(input.version, expected.version);
+        assert_eq!(input.managed_versions, expected.managed_versions);
     }
 
     fn copy_user_settings_test_template(args: Vec<&str>, expected: CopyUserSettingsArgs) {
@@ -393,25 +415,28 @@ mod tests {
         assert_tag_arg(args.tag_arg, expected.tag_arg);
     }
 
-    #[test_case("-p"; "Add specific Proton GE version")]
-    #[test_case("-w"; "Add specific Wine GE version")]
-    #[test_case("-l"; "Add specific Wine GE LoL version")]
-    fn add_specific_proton_tag(kind: &str) {
-        let args = vec!["geman", "add", kind, "6.20-GE-1"];
+    #[test_case("-p", TagKind::Proton; "Add specific Proton GE version")]
+    #[test_case("-w", TagKind::wine(); "Add specific Wine GE version")]
+    #[test_case("-l", TagKind::lol(); "Add specific Wine GE LoL version")]
+    fn add_specific_proton_tag(kind_arg: &str, kind: TagKind) {
+        let tag = "6.20-GE-1";
+        let args = vec!["geman", "add", kind_arg, "6.20-GE-1"];
         let expected = AddCommandInput::new(
-            TagArg::new(Some(Tag::from("6.20-GE-1")), kind_str_to_enum(kind)),
+            GivenVersion::Explicit {
+                version: Box::new(Version::new(tag, kind)),
+            },
             false,
-            false,
+            ManagedVersions::default(),
         );
         add_test_template(args, expected);
     }
 
-    #[test_case("-p"; "Add latest Proton GE version")]
-    #[test_case("-w"; "Add latest Wine GE version")]
-    #[test_case("-l"; "Add latest Wine GE LoL version")]
-    fn add_latest_tag(kind: &str) {
-        let args = vec!["geman", "add", kind];
-        let expected = AddCommandInput::new(TagArg::new(None, kind_str_to_enum(kind)), false, false);
+    #[test_case("-p", TagKind::Proton; "Add latest Proton GE version")]
+    #[test_case("-w", TagKind::wine(); "Add latest Wine GE version")]
+    #[test_case("-l", TagKind::lol(); "Add latest Wine GE LoL version")]
+    fn add_latest_tag(kind_arg: &str, kind: TagKind) {
+        let args = vec!["geman", "add", kind_arg];
+        let expected = AddCommandInput::new(GivenVersion::Latest { kind: kind }, false, ManagedVersions::default());
         add_test_template(args, expected);
     }
 
@@ -427,14 +452,22 @@ mod tests {
     #[test]
     fn add_with_checksum_skip() {
         let args = vec!["geman", "add", "-p", "--skip-checksum"];
-        let expected = AddCommandInput::new(TagArg::new(None, TagKind::Proton), true, false);
+        let expected = AddCommandInput::new(
+            GivenVersion::Latest { kind: TagKind::Proton },
+            true,
+            ManagedVersions::default(),
+        );
         add_test_template(args, expected);
     }
 
     #[test]
     fn add_with_apply() {
         let args = vec!["geman", "add", "-p", "--apply"];
-        let expected = AddCommandInput::new(TagArg::new(None, TagKind::Proton), false, true);
+        let expected = AddCommandInput::new(
+            GivenVersion::Latest { kind: TagKind::Proton },
+            false,
+            ManagedVersions::default(),
+        );
         add_test_template(args, expected);
     }
 
@@ -548,12 +581,17 @@ mod tests {
         assert_eq!(err.kind(), ErrorKind::ArgumentConflict);
     }
 
-    #[test_case("-p"; "Apply for Proton GE")]
-    #[test_case("-w"; "Apply for Wine GE")]
-    #[test_case("-l"; "Apply for Wine GE LoL")]
-    fn apply_with_all_required_args(kind: &str) {
-        let args = vec!["geman", "apply", kind, "6.20-GE-1"];
-        let expected = ApplyCommandInput::new(TagArg::new(Some(Tag::from("6.20-GE-1")), kind_str_to_enum(kind)));
+    #[test_case("-p", TagKind::Proton; "Apply for Proton GE")]
+    #[test_case("-w", TagKind::wine(); "Apply for Wine GE")]
+    #[test_case("-l", TagKind::lol(); "Apply for Wine GE LoL")]
+    fn apply_with_all_required_args(kind_arg: &str, kind: TagKind) {
+        let args = vec!["geman", "apply", kind_arg, "6.20-GE-1"];
+        let expected = ApplyCommandInput::new(
+            GivenVersion::Explicit {
+                version: Box::new(Version::new("6.20-GE-1", kind)),
+            },
+            ManagedVersions::default(),
+        );
         apply_test_template(args, expected);
     }
 
@@ -645,7 +683,7 @@ mod tests {
             .once()
             .returning(|_| PathBuf::from("test_resources/assets/wine.yml"));
 
-        let inputs = ListCommandInput::create_from(matches, managed_versions.clone(), &path_cfg);
+        let inputs = ListCommandInput::create_from(&matches, managed_versions.clone(), &path_cfg);
         assert_eq!(inputs.len(), 1);
 
         let input = &inputs[0];

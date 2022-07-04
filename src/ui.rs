@@ -550,7 +550,6 @@ mod tests {
         let fs_mng = MockFilesystemManager::new();
         let ge_downloader = MockDownloader::new();
 
-        let tmp_dir = TempDir::new().unwrap();
         let path_cfg = MockPathConfiguration::new();
 
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
@@ -651,9 +650,6 @@ mod tests {
 
     #[test]
     fn add_successful_output() {
-        let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = AddCommandInput::new(tag_arg, true, false);
-
         let mut ge_downloader = MockDownloader::new();
         ge_downloader.expect_download_release_assets().once().returning(|_| {
             Ok(DownloadedAssets {
@@ -677,25 +673,26 @@ mod tests {
         setup_managed_versions(&json_path, vec![]);
 
         let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .times(2)
-            .returning(move |_| json_path.clone());
-
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
+        let version = Version::new("6.20-GE-1", TagKind::Proton);
+        let managed_versions = ManagedVersions::new(Vec::new());
+        let input = AddCommandInput::new(
+            GivenVersion::Explicit {
+                version: Box::new(version),
+            },
+            true,
+            managed_versions,
+        );
+
         let mut stdout = AssertLines::new();
-        writer.add(&mut stdout, args).unwrap();
+        writer.add(&mut stdout, input).unwrap();
 
         stdout.assert_line(0, "Skipping checksum comparison");
-        stdout.assert_line(1, "Successfully added version");
     }
 
     #[test]
     fn add_with_checksum_comparison_successful_output() {
-        let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = AddCommandInput::new(tag_arg, false, false);
-
         let mut ge_downloader = MockDownloader::new();
         ge_downloader.expect_download_release_assets().once().returning(|_| {
             let tar = fs::read("test_resources/assets/Proton-6.20-GE-1.tar.gz").unwrap();
@@ -725,25 +722,26 @@ mod tests {
         setup_managed_versions(&json_path, vec![]);
 
         let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .times(2)
-            .returning(move |_| json_path.clone());
-
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
+        let version = Version::new("6.20-GE-1", TagKind::Proton);
+        let managed_versions = ManagedVersions::new(Vec::new());
+        let input = AddCommandInput::new(
+            GivenVersion::Explicit {
+                version: Box::new(version),
+            },
+            false,
+            managed_versions,
+        );
+
         let mut stdout = AssertLines::new();
-        writer.add(&mut stdout, args).unwrap();
+        writer.add(&mut stdout, input).unwrap();
 
         stdout.assert_line(0, "Performing checksum comparison: Checksums match");
-        stdout.assert_line(1, "Successfully added version");
     }
 
     #[test]
     fn add_specific_version_which_is_already_managed_again_expect_message_about_already_being_managed() {
-        let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = AddCommandInput::new(tag_arg, false, false);
-
         let ge_downloader = MockDownloader::new();
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_setup_version().never();
@@ -753,100 +751,58 @@ mod tests {
         setup_managed_versions(&json_path, vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")]);
 
         let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
+        let version = Version::new("6.20-GE-1", TagKind::Proton);
+        let managed_versions =
+            ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6-20-GE-1")]);
+        let input = AddCommandInput::new(
+            GivenVersion::Explicit {
+                version: Box::new(version),
+            },
+            false,
+            managed_versions,
+        );
+
         let mut stdout = AssertLines::new();
-        let result = writer.add(&mut stdout, args);
+        let result = writer.add(&mut stdout, input);
+
         assert!(result.is_ok());
         stdout.assert_line(0, "Version 6.20-GE-1 (Proton) is already managed");
     }
 
     #[test]
     fn add_latest_version_which_is_already_managed_again_expect_message_about_already_being_managed() {
-        let tag_arg = TagArg::new(None, TagKind::Proton);
-        let args = AddCommandInput::new(tag_arg, false, false);
+        let tag = "6.20-GE-1";
+        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new(tag, TagKind::Proton, "")]);
 
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_setup_version().never();
 
         let tmp_dir = TempDir::new().unwrap();
         let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(&json_path, vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")]);
-
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
+        setup_managed_versions(&json_path, managed_versions.vec_ref().clone());
 
         let mut ge_downloader = MockDownloader::new();
         ge_downloader
             .expect_fetch_release()
             .once()
-            .returning(move |_, _| Ok(GeRelease::new(String::from("6.20-GE-1"), Vec::new())));
-
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
-
-        let mut stdout = AssertLines::new();
-        let result = writer.add(&mut stdout, args);
-        assert!(result.is_ok());
-        stdout.assert_line(0, "Version 6.20-GE-1 (Proton) is already managed");
-    }
-
-    #[test]
-    fn add_with_apply_should_modify_app_config() {
-        let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = AddCommandInput::new(tag_arg, false, true);
-
-        let mut ge_downloader = MockDownloader::new();
-        ge_downloader.expect_download_release_assets().once().returning(|_| {
-            let tar = fs::read("test_resources/assets/Proton-6.20-GE-1.tar.gz").unwrap();
-            let checksum = fs::read_to_string("test_resources/assets/Proton-6.20-GE-1.sha512sum").unwrap();
-
-            Ok(DownloadedAssets {
-                tag: "6.20-GE-1".to_string(),
-                compressed_archive: DownloadedArchive {
-                    compressed_content: tar,
-                    file_name: "Proton-6.20-GE-1.tar.gz".to_string(),
-                },
-                checksum: Some(DownloadedChecksum {
-                    checksum,
-                    file_name: "Proton-6.20-GE-1.sha512sum".to_string(),
-                }),
-            })
-        });
-
-        let mut fs_mng = MockFilesystemManager::new();
-        fs_mng
-            .expect_setup_version()
-            .once()
-            .returning(|_, _| Ok(ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")));
-        fs_mng.expect_apply_to_app_config().once().returning(|_| Ok(()));
-
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(&json_path, vec![]);
+            .returning(move |_, _| Ok(GeRelease::new(String::from(tag), Vec::new())));
 
         let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .times(2)
-            .returning(move |_| json_path.clone());
-
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
-        let mut stdout = AssertLines::new();
-        writer.add(&mut stdout, args).unwrap();
+        let input = AddCommandInput::new(
+            GivenVersion::Latest { kind: TagKind::Proton },
+            false,
+            managed_versions.clone(),
+        );
 
-        stdout.assert_line(0, "Performing checksum comparison: Checksums match");
-        stdout.assert_line(1, "Successfully added version");
-        stdout.assert_line(2, "Modifying Steam configuration to use 6.20-GE-1 (Proton)");
-        stdout.assert_line(3, PROTON_APPLY_HINT);
+        let mut stdout = AssertLines::new();
+        let result = writer.add(&mut stdout, input);
+
+        assert!(result.is_ok());
+        stdout.assert_line(0, "Version 6.20-GE-1 (Proton) is already managed");
     }
 
     #[test]
@@ -1149,9 +1105,6 @@ mod tests {
 
     #[test]
     fn apply_to_app_config_for_non_existent_version() {
-        let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = ApplyCommandInput::new(tag_arg);
-
         let ge_downloader = MockDownloader::new();
         let fs_mng = MockFilesystemManager::new();
 
@@ -1160,15 +1113,19 @@ mod tests {
         setup_managed_versions(&json_path, vec![]);
 
         let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
+        let version = Version::new("6.20-GE-1", TagKind::Proton);
+        let managed_versions = ManagedVersions::new(Vec::new());
+        let input = ApplyCommandInput::new(
+            GivenVersion::Explicit {
+                version: Box::new(version),
+            },
+            managed_versions,
+        );
+
         let mut stdout = AssertLines::new();
-        let result = writer.apply(&mut stdout, args);
+        let result = writer.apply(&mut stdout, input);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -1178,9 +1135,6 @@ mod tests {
 
     #[test]
     fn apply_to_app_config_for_latest_version() {
-        let tag_arg = TagArg::new(None, TagKind::Proton);
-        let args = ApplyCommandInput::new(tag_arg);
-
         let ge_downloader = MockDownloader::new();
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_apply_to_app_config().once().returning(|_| Ok(()));
@@ -1193,25 +1147,24 @@ mod tests {
         );
 
         let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
-        let mut stdout = AssertLines::new();
-        writer.apply(&mut stdout, args).unwrap();
+        let managed_versions =
+            ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6-20-GE-1")]);
+        let input = ApplyCommandInput::new(GivenVersion::Latest { kind: TagKind::Proton }, managed_versions);
 
-        stdout.assert_line(0, "Modifying Steam configuration to use 6.20-GE-1 (Proton)");
-        stdout.assert_line(1, PROTON_APPLY_HINT);
+        let mut stdout = AssertLines::new();
+        writer.apply(&mut stdout, input).unwrap();
+
+        stdout.assert_line(
+            0,
+            &message::apply::modifying_config(&Version::new("6.20-GE-1", TagKind::Proton)),
+        );
+        stdout.assert_line(1, message::apply::modify_config_success(&TagKind::Proton));
     }
 
     #[test]
     fn apply_to_app_config_for_existent_version() {
-        let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = ApplyCommandInput::new(tag_arg);
-
         let ge_downloader = MockDownloader::new();
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_apply_to_app_config().once().returning(|_| Ok(()));
@@ -1224,25 +1177,30 @@ mod tests {
         );
 
         let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
-        let mut stdout = AssertLines::new();
-        writer.apply(&mut stdout, args).unwrap();
+        let version = Version::new("6.20-GE-1", TagKind::Proton);
+        let managed_versions =
+            ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6-20-GE-1")]);
+        let input = ApplyCommandInput::new(
+            GivenVersion::Explicit {
+                version: Box::new(version),
+            },
+            managed_versions,
+        );
 
-        stdout.assert_line(0, "Modifying Steam configuration to use 6.20-GE-1 (Proton)");
-        stdout.assert_line(1, PROTON_APPLY_HINT);
+        let mut stdout = AssertLines::new();
+        writer.apply(&mut stdout, input).unwrap();
+
+        stdout.assert_line(
+            0,
+            &message::apply::modifying_config(&Version::new("6.20-GE-1", TagKind::Proton)),
+        );
+        stdout.assert_line(1, message::apply::modify_config_success(&TagKind::Proton));
     }
 
     #[test]
     fn apply_to_app_config_fails_with_an_error() {
-        let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = ApplyCommandInput::new(tag_arg);
-
         let ge_downloader = MockDownloader::new();
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng
@@ -1258,18 +1216,23 @@ mod tests {
         );
 
         let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
+        let version = Version::new("6.20-GE-1", TagKind::Proton);
+        let managed_versions =
+            ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6-20-GE-1")]);
+        let input = ApplyCommandInput::new(
+            GivenVersion::Explicit {
+                version: Box::new(version),
+            },
+            managed_versions,
+        );
+
         let mut stdout = AssertLines::new();
-        let result = writer.apply(&mut stdout, args);
+        let result = writer.apply(&mut stdout, input);
         assert!(result.is_err());
 
-        stdout.assert_line(0, "Modifying Steam configuration to use 6.20-GE-1 (Proton)");
+        stdout.assert_line(0, "Modifying Steam configuration to use 6.20-GE-1");
     }
 
     #[test]
