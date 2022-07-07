@@ -14,7 +14,7 @@ use ge_man::clap::command_names::{
 use ge_man::data::ManagedVersions;
 use ge_man::filesystem::FsMng;
 use ge_man::path::{overrule, PathConfig, PathConfiguration};
-use ge_man::ui::TerminalWriter;
+use ge_man::ui::CommandHandler;
 use ge_man::{clap, config};
 
 fn main() -> anyhow::Result<()> {
@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut out_handle = stdout.lock();
 
-    let command_executor = TerminalWriter::new(&compatibility_tool_downloader, &fs_mng, &path_config);
+    let command_handler = CommandHandler::new(&compatibility_tool_downloader, &fs_mng, &path_config);
     let result = match matches.subcommand_name() {
         Some(LIST) => {
             let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
@@ -51,7 +51,7 @@ fn main() -> anyhow::Result<()> {
             let inputs = ListCommandInput::create_from(&matches, managed_versions, &path_config);
 
             for input in inputs {
-                command_executor.list_versions(&mut out_handle, &mut err_handle, input);
+                command_handler.list_versions(&mut out_handle, &mut err_handle, input);
             }
             Ok(())
         }
@@ -60,7 +60,7 @@ fn main() -> anyhow::Result<()> {
             let managed_versions = ManagedVersions::from_file(&managed_versions_path)?;
             let add_input = AddCommandInput::create_from(&matches, managed_versions);
 
-            let new_and_managed_versions = command_executor.add(&mut out_handle, add_input)?;
+            let new_and_managed_versions = command_handler.add(&mut out_handle, add_input)?;
             new_and_managed_versions
                 .managed_versions
                 .write_to_file(&managed_versions_path)?;
@@ -73,7 +73,7 @@ fn main() -> anyhow::Result<()> {
                     },
                     new_and_managed_versions.managed_versions,
                 );
-                command_executor.apply(&mut out_handle, apply_input)?;
+                command_handler.apply(&mut out_handle, apply_input)?;
             }
 
             Ok(())
@@ -85,7 +85,7 @@ fn main() -> anyhow::Result<()> {
                 path_config.application_config_file(&RemoveCommandInput::tag_kind_from_matches(&matches));
             let input = RemoveCommandInput::create_from(&matches, managed_versions, app_config_path)?;
 
-            let removed_and_managed_versions = command_executor.remove(input)?;
+            let removed_and_managed_versions = command_handler.remove(input)?;
             removed_and_managed_versions
                 .managed_versions
                 .write_to_file(&managed_versions_path)?;
@@ -98,27 +98,27 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some(CHECK) => {
-            command_executor.check(&mut out_handle, &mut err_handle, CheckArgs::from(matches));
+            command_handler.check(&mut out_handle, &mut err_handle, CheckArgs::from(matches));
             Ok(())
         }
-        Some(MIGRATE) => command_executor.migrate(&mut out_handle, MigrationArgs::from(matches)),
+        Some(MIGRATE) => command_handler.migrate(&mut out_handle, MigrationArgs::from(matches)),
         Some(APPLY) => {
             let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
             let managed_versions = ManagedVersions::from_file(&managed_versions_path)?;
 
             let input = ApplyCommandInput::create_from(&matches, managed_versions);
-            command_executor.apply(&mut out_handle, input)
+            command_handler.apply(&mut out_handle, input)
         }
         Some(PROTON_USER_SETTINGS) => {
             let sub_cmd_matches = matches.subcommand_matches(PROTON_USER_SETTINGS).unwrap();
             match sub_cmd_matches.subcommand_name() {
                 Some(USER_SETTINGS_COPY) => {
-                    command_executor.copy_user_settings(&mut out_handle, CopyUserSettingsArgs::from(matches))
+                    command_handler.copy_user_settings(&mut out_handle, CopyUserSettingsArgs::from(matches))
                 }
                 _ => Ok(()),
             }
         }
-        Some(FORGET) => command_executor.forget(&mut out_handle, ForgetArgs::from(matches)),
+        Some(FORGET) => command_handler.forget(&mut out_handle, ForgetArgs::from(matches)),
         None => Ok(()),
         _ => Ok(()),
     };

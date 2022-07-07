@@ -54,19 +54,20 @@ impl RemovedAndManagedVersions {
 // TODO: Rename struct to `CommandExecutor` after refactorings. It does more than just write to a terminal.
 /// Handles user interaction and user feedback. This struct basically ties everything together to provide the
 /// functionality of each terminal command.
-pub struct TerminalWriter<'a> {
+pub struct CommandHandler<'a> {
     ge_downloader: &'a dyn GeDownload,
     fs_mng: &'a dyn FilesystemManager,
+    // TODO: Remove path_cfg after ui module refactoring is complete
     path_cfg: &'a dyn PathConfiguration,
 }
 
-impl<'a> TerminalWriter<'a> {
+impl<'a> CommandHandler<'a> {
     pub fn new(
         ge_downloader: &'a dyn GeDownload,
         fs_mng: &'a dyn FilesystemManager,
         path_cfg: &'a dyn PathConfiguration,
     ) -> Self {
-        TerminalWriter {
+        CommandHandler {
             ge_downloader,
             fs_mng,
             path_cfg,
@@ -498,10 +499,10 @@ mod tests {
             .times(2)
             .returning(move |_| json_path.clone());
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
-        writer.forget(&mut stdout, args).unwrap();
+        command_handler.forget(&mut stdout, args).unwrap();
 
         stdout.assert_line(0, "6.20-GE-1 (Proton) is now not managed by GE Helper");
     }
@@ -522,10 +523,10 @@ mod tests {
             .once()
             .returning(move |_| json_path.clone());
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
-        let result = writer.forget(&mut stdout, args);
+        let result = command_handler.forget(&mut stdout, args);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -540,8 +541,8 @@ mod tests {
 
         let path_cfg = MockPathConfiguration::new();
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
-        writer.list_versions(stdout, stderr, input);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        command_handler.list_versions(stdout, stderr, input);
     }
 
     #[test]
@@ -661,7 +662,7 @@ mod tests {
         setup_managed_versions(&json_path, vec![]);
 
         let path_cfg = MockPathConfiguration::new();
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
         let managed_versions = ManagedVersions::new(Vec::new());
@@ -674,7 +675,7 @@ mod tests {
         );
 
         let mut stdout = AssertLines::new();
-        writer.add(&mut stdout, input).unwrap();
+        command_handler.add(&mut stdout, input).unwrap();
 
         stdout.assert_line(0, "Skipping checksum comparison");
     }
@@ -710,7 +711,7 @@ mod tests {
         setup_managed_versions(&json_path, vec![]);
 
         let path_cfg = MockPathConfiguration::new();
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
         let managed_versions = ManagedVersions::new(Vec::new());
@@ -723,7 +724,7 @@ mod tests {
         );
 
         let mut stdout = AssertLines::new();
-        writer.add(&mut stdout, input).unwrap();
+        command_handler.add(&mut stdout, input).unwrap();
 
         stdout.assert_line(0, "Performing checksum comparison: Checksums match");
     }
@@ -739,7 +740,7 @@ mod tests {
         setup_managed_versions(&json_path, vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")]);
 
         let path_cfg = MockPathConfiguration::new();
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
         let managed_versions =
@@ -753,7 +754,7 @@ mod tests {
         );
 
         let mut stdout = AssertLines::new();
-        let result = writer.add(&mut stdout, input);
+        let result = command_handler.add(&mut stdout, input);
 
         assert!(result.is_ok());
         stdout.assert_line(0, "Version 6.20-GE-1 (Proton) is already managed");
@@ -778,7 +779,7 @@ mod tests {
             .returning(move |_, _| Ok(GeRelease::new(String::from(tag), Vec::new())));
 
         let path_cfg = MockPathConfiguration::new();
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let input = AddCommandInput::new(
             GivenVersion::Latest { kind: TagKind::Proton },
@@ -787,7 +788,7 @@ mod tests {
         );
 
         let mut stdout = AssertLines::new();
-        let result = writer.add(&mut stdout, input);
+        let result = command_handler.add(&mut stdout, input);
 
         assert!(result.is_ok());
         stdout.assert_line(0, "Version 6.20-GE-1 (Proton) is already managed");
@@ -809,8 +810,8 @@ mod tests {
         ]);
         let input = RemoveCommandInput::new(managed_versions, version_to_remove.clone(), steam_config_path);
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
-        let removed_and_managed_versions = writer.remove(input).unwrap();
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let removed_and_managed_versions = command_handler.remove(input).unwrap();
         assert_eq!(removed_and_managed_versions.managed_versions.vec_ref().len(), 1);
         assert_eq!(
             removed_and_managed_versions.managed_versions,
@@ -836,8 +837,8 @@ mod tests {
         let version_to_remove = ManagedVersion::new("6.21-GE-2", TagKind::Proton, "Proton-6.21-GE-2");
         let input = RemoveCommandInput::new(managed_versions, version_to_remove, steam_config_path);
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
-        let result = writer.remove(input);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let result = command_handler.remove(input);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -871,11 +872,11 @@ mod tests {
         let path_cfg = MockPathConfiguration::new();
         let fs_mng = MockFilesystemManager::new();
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
         let mut stderr = AssertLines::new();
-        writer.check(&mut stdout, &mut stderr, args);
+        command_handler.check(&mut stdout, &mut stderr, args);
 
         stdout.assert_line(0, "These are the latest releases.");
         stdout.assert_line(1, "");
@@ -908,11 +909,11 @@ mod tests {
         let path_cfg = MockPathConfiguration::new();
         let fs_mng = MockFilesystemManager::new();
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
         let mut stderr = AssertLines::new();
-        writer.check(&mut stdout, &mut stderr, args);
+        command_handler.check(&mut stdout, &mut stderr, args);
 
         stdout.assert_line(0, "These are the latest releases.");
         stderr.assert_line(
@@ -954,10 +955,10 @@ mod tests {
             .once()
             .returning(move |_| json_path.clone());
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
-        let result = writer.migrate(&mut stdout, args);
+        let result = command_handler.migrate(&mut stdout, args);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -991,10 +992,10 @@ mod tests {
             .times(2)
             .returning(move |_| json_path.clone());
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
-        writer.migrate(&mut stdout, args).unwrap();
+        command_handler.migrate(&mut stdout, args).unwrap();
         stdout.assert_line(0, "Successfully migrated directory as 6.20-GE-1 (Proton)");
     }
 
@@ -1021,10 +1022,10 @@ mod tests {
             .once()
             .returning(move |_| json_path.clone());
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
-        let result = writer.migrate(&mut stdout, args);
+        let result = command_handler.migrate(&mut stdout, args);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -1042,7 +1043,7 @@ mod tests {
         setup_managed_versions(&json_path, vec![]);
 
         let path_cfg = MockPathConfiguration::new();
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
         let managed_versions = ManagedVersions::new(Vec::new());
@@ -1054,7 +1055,7 @@ mod tests {
         );
 
         let mut stdout = AssertLines::new();
-        let result = writer.apply(&mut stdout, input);
+        let result = command_handler.apply(&mut stdout, input);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -1076,14 +1077,14 @@ mod tests {
         );
 
         let path_cfg = MockPathConfiguration::new();
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let managed_versions =
             ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6-20-GE-1")]);
         let input = ApplyCommandInput::new(GivenVersion::Latest { kind: TagKind::Proton }, managed_versions);
 
         let mut stdout = AssertLines::new();
-        writer.apply(&mut stdout, input).unwrap();
+        command_handler.apply(&mut stdout, input).unwrap();
 
         stdout.assert_line(
             0,
@@ -1106,7 +1107,7 @@ mod tests {
         );
 
         let path_cfg = MockPathConfiguration::new();
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
         let managed_versions =
@@ -1119,7 +1120,7 @@ mod tests {
         );
 
         let mut stdout = AssertLines::new();
-        writer.apply(&mut stdout, input).unwrap();
+        command_handler.apply(&mut stdout, input).unwrap();
 
         stdout.assert_line(
             0,
@@ -1145,7 +1146,7 @@ mod tests {
         );
 
         let path_cfg = MockPathConfiguration::new();
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
         let managed_versions =
@@ -1158,7 +1159,7 @@ mod tests {
         );
 
         let mut stdout = AssertLines::new();
-        let result = writer.apply(&mut stdout, input);
+        let result = command_handler.apply(&mut stdout, input);
         assert!(result.is_err());
 
         stdout.assert_line(0, "Modifying Steam configuration to use 6.20-GE-1");
@@ -1180,10 +1181,10 @@ mod tests {
             .once()
             .returning(move |_| json_path.clone());
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
-        let result = writer.copy_user_settings(&mut stdout, args);
+        let result = command_handler.copy_user_settings(&mut stdout, args);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -1207,10 +1208,10 @@ mod tests {
             .once()
             .returning(move |_| json_path.clone());
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
-        let result = writer.copy_user_settings(&mut stdout, args);
+        let result = command_handler.copy_user_settings(&mut stdout, args);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -1242,10 +1243,10 @@ mod tests {
             .once()
             .returning(move |_| json_path.clone());
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
-        writer.copy_user_settings(&mut stdout, args).unwrap();
+        command_handler.copy_user_settings(&mut stdout, args).unwrap();
 
         stdout.assert_line(
             0,
@@ -1280,10 +1281,10 @@ mod tests {
             .once()
             .returning(move |_| json_path.clone());
 
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
-        let result = writer.copy_user_settings(&mut stdout, args);
+        let result = command_handler.copy_user_settings(&mut stdout, args);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
