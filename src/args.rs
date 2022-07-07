@@ -362,7 +362,7 @@ mod tests {
 
     use crate::clap::setup_clap;
     use crate::data::ManagedVersion;
-    use crate::path::{MockPathConfiguration, PathConfig};
+    use crate::path::MockPathConfiguration;
 
     use super::*;
 
