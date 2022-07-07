@@ -1,19 +1,19 @@
+use std::io;
 use std::io::Write;
 
 use anyhow::{anyhow, bail, Context};
 use ge_man_lib::archive;
-use ge_man_lib::config::{LutrisConfig, SteamConfig};
 use ge_man_lib::download::response::DownloadedAssets;
 use ge_man_lib::download::{DownloadRequest, GeDownload};
-use ge_man_lib::error::{GithubError, LutrisConfigError};
+use ge_man_lib::error::GithubError;
 use ge_man_lib::tag::TagKind;
 use log::debug;
 
 use crate::args::{
     AddCommandInput, ApplyCommandInput, CheckArgs, CopyUserSettingsArgs, ForgetArgs, GivenVersion, ListCommandInput,
-    MigrationArgs, RemoveArgs,
+    MigrationArgs, RemoveCommandInput,
 };
-use crate::compat_tool_app::AppConfig;
+use crate::compat_tool_app::ApplicationConfig;
 use crate::data::{ManagedVersion, ManagedVersions};
 use crate::filesystem::FilesystemManager;
 use crate::message;
@@ -21,12 +21,28 @@ use crate::path::{overrule, PathConfiguration};
 use crate::progress::{DownloadProgressTracker, ExtractionProgressTracker};
 use crate::version::{Version, Versioned};
 
+#[derive(Debug)]
 pub struct NewAndManagedVersions {
     pub version: ManagedVersion,
     pub managed_versions: ManagedVersions,
 }
 
 impl NewAndManagedVersions {
+    pub fn new(version: ManagedVersion, managed_versions: ManagedVersions) -> Self {
+        Self {
+            version,
+            managed_versions,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct RemovedAndManagedVersions {
+    pub version: ManagedVersion,
+    pub managed_versions: ManagedVersions,
+}
+
+impl RemovedAndManagedVersions {
     pub fn new(version: ManagedVersion, managed_versions: ManagedVersions) -> Self {
         Self {
             version,
@@ -210,64 +226,36 @@ impl<'a> TerminalWriter<'a> {
         Ok(NewAndManagedVersions::new(new_version, managed_versions))
     }
 
-    pub fn remove(&self, stdout: &mut impl Write, args: RemoveArgs) -> anyhow::Result<()> {
-        let version = args.tag_arg.version();
-        let mut managed_versions = self.read_managed_versions()?;
+    pub fn remove(&self, input: RemoveCommandInput) -> anyhow::Result<RemovedAndManagedVersions> {
+        let RemoveCommandInput {
+            mut managed_versions,
+            version_to_remove,
+            app_config_path,
+        } = input;
 
-        let version = match managed_versions.find_version(&version) {
-            Some(v) => v,
-            None => bail!("Given version is not managed"),
-        };
-
-        match &version.kind() {
-            TagKind::Proton => {
-                let path = self.path_cfg.steam_config(overrule::steam_root());
-                debug!("Removing {} from Steam config file: {}", version.tag(), path.display());
-                let config = SteamConfig::create_copy(&path)
-                    .map_err(|err| anyhow!(err))
-                    .context(format!("Failed to read Steam config: {}", path.display()))?;
-
-                if self.check_if_version_in_use_by_config(&version, &config) {
-                    bail!("Proton version is in use by Steam. Select a different version to make removal possible.");
+        let app_config = ApplicationConfig::create_copy(version_to_remove.kind(), &app_config_path);
+        if let Err(err) = &app_config {
+            if let Some(err) = err.downcast_ref::<io::Error>() {
+                // Ignore file not found errors.
+                if err.raw_os_error().unwrap() != 2 {
+                    bail!("{}", err)
                 }
-            }
-            TagKind::Wine { .. } => {
-                let path = self.path_cfg.lutris_wine_runner_config(overrule::xdg_config_home());
-                debug!("Removing {} from Lutris config file: {}", version.tag(), path.display());
-                let config = LutrisConfig::create_copy(&path);
-                match config {
-                    Ok(config) => {
-                        if self.check_if_version_in_use_by_config(&version, &config) {
-                            bail!(
-                                "Wine version is in use by Lutris. Select a different version to make removal \
-                            possible."
-                            );
-                        }
-                    }
-                    Err(err) => {
-                        if let LutrisConfigError::IoError { source } = &err {
-                            if source.raw_os_error().unwrap() != 2 {
-                                bail!(err);
-                            }
-                        }
-                    }
-                }
+            } else {
+                bail!("{}", err);
             }
         }
 
-        self.fs_mng.remove_version(&version).unwrap();
-        managed_versions.remove(&version).unwrap();
+        let app_config = app_config.unwrap();
+        if app_config.check_if_version_is_in_use(&version_to_remove) {
+            bail!(
+                "{} version is in use. Select a different version to make removal possible",
+                version_to_remove.kind()
+            );
+        }
 
-        self.write_managed_versions(managed_versions)?;
-        writeln!(stdout, "Successfully removed version {}.", version).unwrap();
-        Ok(())
-    }
-
-    fn check_if_version_in_use_by_config<T>(&self, version: &ManagedVersion, app_config: &T) -> bool
-    where
-        T: AppConfig,
-    {
-        app_config.version_dir_name().eq(version.directory_name())
+        self.fs_mng.remove_version(&version_to_remove).unwrap();
+        managed_versions.remove(&version_to_remove).unwrap();
+        Ok(RemovedAndManagedVersions::new(version_to_remove, managed_versions))
     }
 
     pub fn check(&self, stdout: &mut impl Write, stderr: &mut impl Write, args: CheckArgs) {
@@ -672,7 +660,7 @@ mod tests {
         let json_path = tmp_dir.join("ge_man/managed_versions.json");
         setup_managed_versions(&json_path, vec![]);
 
-        let mut path_cfg = MockPathConfiguration::new();
+        let path_cfg = MockPathConfiguration::new();
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
@@ -721,7 +709,7 @@ mod tests {
         let json_path = tmp_dir.join("ge_man/managed_versions.json");
         setup_managed_versions(&json_path, vec![]);
 
-        let mut path_cfg = MockPathConfiguration::new();
+        let path_cfg = MockPathConfiguration::new();
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
@@ -750,7 +738,7 @@ mod tests {
         let json_path = tmp_dir.join("ge_man/managed_versions.json");
         setup_managed_versions(&json_path, vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")]);
 
-        let mut path_cfg = MockPathConfiguration::new();
+        let path_cfg = MockPathConfiguration::new();
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
@@ -789,7 +777,7 @@ mod tests {
             .once()
             .returning(move |_, _| Ok(GeRelease::new(String::from(tag), Vec::new())));
 
-        let mut path_cfg = MockPathConfiguration::new();
+        let path_cfg = MockPathConfiguration::new();
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let input = AddCommandInput::new(
@@ -806,116 +794,57 @@ mod tests {
     }
 
     #[test]
-    fn remove_not_managed_version() {
-        let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = RemoveArgs::new(tag_arg);
-        let ge_downloader = MockDownloader::new();
-
-        let mut fs_mng = MockFilesystemManager::new();
-        fs_mng.expect_remove_version().never();
-
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(&json_path, vec![]);
-
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
-        path_cfg.expect_steam_config().never();
-
-        let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
-        let mut stdout = AssertLines::new();
-
-        let result = writer.remove(&mut stdout, args);
-        assert!(result.is_err());
-
-        let err = result.unwrap_err();
-        assert_eq!(err.to_string(), "Given version is not managed");
-        stdout.assert_empty();
-    }
-
-    #[test]
     fn remove_existing_version() {
-        let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = RemoveArgs::new(tag_arg);
         let ge_downloader = MockDownloader::new();
+        let path_cfg = MockPathConfiguration::new();
 
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_remove_version().once().returning(|_| Ok(()));
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(
-            &json_path,
-            vec![ManagedVersion::new(Tag::from("6.20-GE-1"), TagKind::Proton, "")],
-        );
-
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .times(2)
-            .returning(move |_| json_path.clone());
-
-        let steam_path = PathBuf::from("test_resources/assets/config.vdf");
-        path_cfg
-            .expect_steam_config()
-            .once()
-            .returning(move |_| steam_path.clone());
+        let steam_config_path = PathBuf::from("test_resources/assets/config.vdf");
+        let version_to_remove = ManagedVersion::new("6.20-GE-1", TagKind::Proton, "");
+        let managed_versions = ManagedVersions::new(vec![
+            ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6-20-GE-1"),
+            ManagedVersion::new("6.21-GE-2", TagKind::Proton, "6-21-GE-2"),
+        ]);
+        let input = RemoveCommandInput::new(managed_versions, version_to_remove.clone(), steam_config_path);
 
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
-        let mut stdout = AssertLines::new();
-        writer.remove(&mut stdout, args).unwrap();
-
-        stdout.assert_line(0, "Successfully removed version 6.20-GE-1 (Proton).")
+        let removed_and_managed_versions = writer.remove(input).unwrap();
+        assert_eq!(removed_and_managed_versions.managed_versions.vec_ref().len(), 1);
+        assert_eq!(
+            removed_and_managed_versions.managed_versions,
+            ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-2", TagKind::Proton, "")])
+        );
+        assert_eq!(removed_and_managed_versions.version, version_to_remove)
     }
 
     #[test]
     fn remove_version_used_by_app_config() {
-        let tag_arg = TagArg::new(Some(Tag::from("6.21-GE-2")), TagKind::Proton);
-        let args = RemoveArgs::new(tag_arg);
         let ge_downloader = MockDownloader::new();
+        let path_cfg = MockPathConfiguration::new();
 
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_remove_version().never();
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(
-            &json_path,
-            vec![ManagedVersion::new(
-                Tag::from("6.21-GE-2"),
-                TagKind::Proton,
-                "Proton-6.21-GE-2",
-            )],
-        );
+        let managed_versions = ManagedVersions::new(vec![
+            ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6.20-GE-1"),
+            ManagedVersion::new("6.21-GE-2", TagKind::Proton, "Proton-6.21-GE-2"),
+        ]);
 
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
-        let steam_path = PathBuf::from("test_resources/assets/config.vdf");
-        path_cfg
-            .expect_steam_config()
-            .once()
-            .returning(move |_| steam_path.clone());
+        let steam_config_path = PathBuf::from("test_resources/assets/config.vdf");
+        let version_to_remove = ManagedVersion::new("6.21-GE-2", TagKind::Proton, "Proton-6.21-GE-2");
+        let input = RemoveCommandInput::new(managed_versions, version_to_remove, steam_config_path);
 
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
-        let mut stdout = AssertLines::new();
-
-        let result = writer.remove(&mut stdout, args);
+        let result = writer.remove(input);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
         assert_eq!(
             err.to_string(),
-            "Proton version is in use by Steam. Select a different version to make removal possible."
+            "PROTON version is in use. Select a different version to make removal possible"
         );
-        stdout.assert_empty();
     }
 
     #[test]
@@ -1112,7 +1041,7 @@ mod tests {
         let json_path = tmp_dir.join("ge_man/managed_versions.json");
         setup_managed_versions(&json_path, vec![]);
 
-        let mut path_cfg = MockPathConfiguration::new();
+        let path_cfg = MockPathConfiguration::new();
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
@@ -1146,7 +1075,7 @@ mod tests {
             vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "Proton-6.20-GE-1")],
         );
 
-        let mut path_cfg = MockPathConfiguration::new();
+        let path_cfg = MockPathConfiguration::new();
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let managed_versions =
@@ -1176,7 +1105,7 @@ mod tests {
             vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "Proton-6.20-GE-1")],
         );
 
-        let mut path_cfg = MockPathConfiguration::new();
+        let path_cfg = MockPathConfiguration::new();
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
@@ -1215,7 +1144,7 @@ mod tests {
             vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "Proton-6.20-GE-1")],
         );
 
-        let mut path_cfg = MockPathConfiguration::new();
+        let path_cfg = MockPathConfiguration::new();
         let writer = TerminalWriter::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);

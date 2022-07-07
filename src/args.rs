@@ -1,13 +1,14 @@
 use std::path::PathBuf;
 
+use anyhow::bail;
 use clap::ArgMatches;
 use ge_man_lib::tag::{Tag, TagKind, WineTagKind};
 
 use crate::clap::{arg_group_names, arg_names, command_names};
-use crate::data::ManagedVersions;
-use crate::filesystem;
+use crate::data::{ManagedVersion, ManagedVersions};
 use crate::path::PathConfiguration;
 use crate::version::{Version, Versioned};
+use crate::{args, filesystem};
 
 fn application_name(kind: &TagKind) -> String {
     match kind {
@@ -187,25 +188,43 @@ impl AddCommandInput {
     }
 }
 
-pub struct RemoveArgs {
-    pub tag_arg: TagArg,
+pub struct RemoveCommandInput {
+    pub managed_versions: ManagedVersions,
+    pub version_to_remove: ManagedVersion,
+    pub app_config_path: PathBuf,
 }
 
-impl RemoveArgs {
-    pub fn new(tag_arg: TagArg) -> Self {
-        RemoveArgs { tag_arg }
+impl RemoveCommandInput {
+    pub fn new(managed_versions: ManagedVersions, version_to_remove: ManagedVersion, app_config_path: PathBuf) -> Self {
+        Self {
+            managed_versions,
+            version_to_remove,
+            app_config_path,
+        }
     }
-}
 
-impl From<ArgMatches> for RemoveArgs {
-    fn from(matches: ArgMatches) -> Self {
+    pub fn create_from(
+        matches: &ArgMatches,
+        managed_versions: ManagedVersions,
+        app_config_path: PathBuf,
+    ) -> anyhow::Result<Self> {
         let matches = matches.subcommand_matches(command_names::REMOVE).unwrap();
         let tag_arg = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
         if tag_arg.tag.is_none() {
-            panic!("No version provided!")
+            bail!("No version provided! - A version is required for removal");
         }
 
-        RemoveArgs::new(tag_arg)
+        let version = match managed_versions.find_version(&tag_arg.version()) {
+            Some(v) => v,
+            None => bail!("Given version is not managed"),
+        };
+
+        Ok(RemoveCommandInput::new(managed_versions, version, app_config_path))
+    }
+
+    pub fn tag_kind_from_matches(matches: &ArgMatches) -> TagKind {
+        let matches = matches.subcommand_matches(args::command_names::REMOVE).unwrap();
+        TagArg::try_from(matches).unwrap().kind
     }
 }
 
@@ -343,7 +362,7 @@ mod tests {
 
     use crate::clap::setup_clap;
     use crate::data::ManagedVersion;
-    use crate::path::MockPathConfiguration;
+    use crate::path::{MockPathConfiguration, PathConfig};
 
     use super::*;
 
@@ -370,11 +389,15 @@ mod tests {
         assert_eq!(input.managed_versions, expected.managed_versions);
     }
 
-    fn remove_test_template(args: Vec<&str>, expected: RemoveArgs) {
-        let matches = setup_clap().try_get_matches_from(args).unwrap();
-        let args = RemoveArgs::from(matches);
+    fn remove_test_template(command: Vec<&str>, expected: RemoveCommandInput) {
+        let matches = setup_clap().try_get_matches_from(command).unwrap();
+        let input =
+            RemoveCommandInput::create_from(&matches, expected.managed_versions.clone(), PathBuf::from("/tmp/test"))
+                .unwrap();
 
-        assert_tag_arg(args.tag_arg, expected.tag_arg);
+        assert_eq!(input.version_to_remove, expected.version_to_remove);
+        assert_eq!(input.app_config_path, expected.app_config_path);
+        assert_eq!(input.managed_versions, expected.managed_versions);
     }
 
     fn check_test_template(args: Vec<&str>, expected: CheckArgs) {
@@ -480,13 +503,18 @@ mod tests {
         assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
     }
 
-    #[test_case("-p"; "Remove Proton GE version")]
-    #[test_case("-w"; "Remove Wine GE version")]
-    #[test_case("-l"; "Remove Wine GE LoL version")]
-    fn remove_specific_tag(kind: &str) {
-        let args = vec!["geman", "rm", kind, "6.20-GE-1"];
-        let expected = RemoveArgs::new(TagArg::new(Some(Tag::from("6.20-GE-1")), kind_str_to_enum(kind)));
-        remove_test_template(args, expected);
+    #[test_case("-p", TagKind::Proton; "Remove Proton GE version")]
+    #[test_case("-w", TagKind::wine(); "Remove Wine GE version")]
+    #[test_case("-l", TagKind::lol(); "Remove Wine GE LoL version")]
+    fn remove_specific_tag(tag_arg: &str, kind: TagKind) {
+        let command = vec!["geman", "rm", tag_arg, "6.20-GE-1"];
+        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", kind, "6.20-GE-1")]);
+        let expected = RemoveCommandInput::new(
+            managed_versions,
+            ManagedVersion::new("6.20-GE-1", kind, "6.20-GE-1"),
+            PathBuf::from("/tmp/test"),
+        );
+        remove_test_template(command, expected);
     }
 
     #[test_case("-p"; "Remove Proton GE version")]
@@ -496,8 +524,21 @@ mod tests {
         let args = vec!["geman", "rm", kind];
         let result = setup_clap().try_get_matches_from(args);
         assert!(result.is_err());
+
         let err = result.unwrap_err();
         assert_eq!(err.kind(), ErrorKind::EmptyValue);
+    }
+
+    #[test_case("-p", TagKind::Proton; "Remove Proton GE version")]
+    #[test_case("-w", TagKind::wine(); "Remove Wine GE version")]
+    #[test_case("-l", TagKind::lol(); "Remove Wine GE LoL version")]
+    fn remove_not_managed_version_should_return_an_error(tag_arg: &str, kind: TagKind) {
+        let command = vec!["geman", "rm", tag_arg, "6.20-GE-1"];
+        let matches = setup_clap().try_get_matches_from(command).unwrap();
+
+        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-2", kind, "6.21-GE-2")]);
+        let result = RemoveCommandInput::create_from(&matches, managed_versions.clone(), PathBuf::from("/tmp/test"));
+        assert!(result.is_err());
     }
 
     #[test]

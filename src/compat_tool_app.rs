@@ -1,3 +1,4 @@
+use crate::data::ManagedVersion;
 use ge_man_lib::config::{LutrisConfig, SteamConfig};
 use ge_man_lib::error::{LutrisConfigError, SteamConfigError};
 use ge_man_lib::tag::TagKind;
@@ -42,6 +43,10 @@ impl ApplicationConfig {
             }
         };
         Ok(config)
+    }
+
+    pub fn check_if_version_is_in_use(&self, version: &ManagedVersion) -> bool {
+        self.version_dir_name().eq(version.directory_name())
     }
 }
 

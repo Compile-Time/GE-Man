@@ -6,7 +6,7 @@ use ge_man_lib::download::GeDownloader;
 
 use ge_man::args::{
     AddCommandInput, ApplyCommandInput, CheckArgs, CopyUserSettingsArgs, ForgetArgs, GivenVersion, ListCommandInput,
-    MigrationArgs, RemoveArgs,
+    MigrationArgs, RemoveCommandInput,
 };
 use ge_man::clap::command_names::{
     ADD, APPLY, CHECK, FORGET, LIST, MIGRATE, PROTON_USER_SETTINGS, REMOVE, USER_SETTINGS_COPY,
@@ -60,7 +60,6 @@ fn main() -> anyhow::Result<()> {
             let managed_versions = ManagedVersions::from_file(&managed_versions_path)?;
             let add_input = AddCommandInput::create_from(&matches, managed_versions);
 
-            // TODO: Add a struct for this return type.
             let new_and_managed_versions = command_executor.add(&mut out_handle, add_input)?;
             new_and_managed_versions
                 .managed_versions
@@ -79,7 +78,25 @@ fn main() -> anyhow::Result<()> {
 
             Ok(())
         }
-        Some(REMOVE) => command_executor.remove(&mut out_handle, RemoveArgs::from(matches)),
+        Some(REMOVE) => {
+            let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
+            let managed_versions = ManagedVersions::from_file(&managed_versions_path)?;
+            let app_config_path =
+                path_config.application_config_file(&RemoveCommandInput::tag_kind_from_matches(&matches));
+            let input = RemoveCommandInput::create_from(&matches, managed_versions, app_config_path)?;
+
+            let removed_and_managed_versions = command_executor.remove(input)?;
+            removed_and_managed_versions
+                .managed_versions
+                .write_to_file(&managed_versions_path)?;
+            writeln!(
+                out_handle,
+                "Successfully removed version {}.",
+                removed_and_managed_versions.version
+            )
+            .unwrap();
+            Ok(())
+        }
         Some(CHECK) => {
             command_executor.check(&mut out_handle, &mut err_handle, CheckArgs::from(matches));
             Ok(())
