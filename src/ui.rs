@@ -51,7 +51,6 @@ impl RemovedAndManagedVersions {
     }
 }
 
-// TODO: Rename struct to `CommandExecutor` after refactorings. It does more than just write to a terminal.
 /// Handles user interaction and user feedback. This struct basically ties everything together to provide the
 /// functionality of each terminal command.
 pub struct CommandHandler<'a> {
