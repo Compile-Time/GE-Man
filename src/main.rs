@@ -5,8 +5,8 @@ use anyhow::{bail, Context};
 use ge_man_lib::download::GeDownloader;
 
 use ge_man::args::{
-    AddCommandInput, ApplyCommandInput, CheckCommandInput, CopyUserSettingsCommandInput, ForgetArgs, GivenVersion,
-    ListCommandInput, MigrationCommandInput, RemoveCommandInput,
+    AddCommandInput, ApplyCommandInput, CheckCommandInput, CopyUserSettingsCommandInput, ForgetCommandInput,
+    GivenVersion, ListCommandInput, MigrationCommandInput, RemoveCommandInput,
 };
 use ge_man::clap::command_names::{
     ADD, APPLY, CHECK, FORGET, LIST, MIGRATE, PROTON_USER_SETTINGS, REMOVE, USER_SETTINGS_COPY,
@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut out_handle = stdout.lock();
 
-    let command_handler = CommandHandler::new(&compatibility_tool_downloader, &fs_mng, &path_config);
+    let command_handler = CommandHandler::new(&compatibility_tool_downloader, &fs_mng);
     let result = match matches.subcommand_name() {
         Some(LIST) => {
             let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
@@ -139,7 +139,23 @@ fn main() -> anyhow::Result<()> {
                 _ => Ok(()),
             }
         }
-        Some(FORGET) => command_handler.forget(&mut out_handle, ForgetArgs::from(matches)),
+        Some(FORGET) => {
+            let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
+            let managed_versions = ManagedVersions::from_file(&managed_versions_path)?;
+
+            let removed_and_managed_versions =
+                command_handler.forget(ForgetCommandInput::create_from(&matches, managed_versions))?;
+            removed_and_managed_versions
+                .managed_versions
+                .write_to_file(&managed_versions_path)?;
+            writeln!(
+                out_handle,
+                "{} is now not managed by GE Helper",
+                removed_and_managed_versions.version
+            )
+            .unwrap();
+            Ok(())
+        }
         None => Ok(()),
         _ => Ok(()),
     };

@@ -342,22 +342,25 @@ impl CopyUserSettingsCommandInput {
     }
 }
 
-pub struct ForgetArgs {
-    pub tag_arg: TagArg,
+pub struct ForgetCommandInput {
+    pub version_to_forget: Box<dyn Versioned>,
+    pub managed_versions: ManagedVersions,
 }
 
-impl ForgetArgs {
-    pub fn new(tag_arg: TagArg) -> Self {
-        ForgetArgs { tag_arg }
+impl ForgetCommandInput {
+    pub fn new(version_to_forget: Box<dyn Versioned>, managed_versions: ManagedVersions) -> Self {
+        Self {
+            version_to_forget,
+            managed_versions,
+        }
     }
-}
 
-impl From<ArgMatches> for ForgetArgs {
-    fn from(matches: ArgMatches) -> Self {
+    pub fn create_from(matches: &ArgMatches, managed_versions: ManagedVersions) -> Self {
         let matches = matches.subcommand_matches(command_names::FORGET).unwrap();
         let tag_arg = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
 
-        ForgetArgs::new(tag_arg)
+        let version = Box::new(tag_arg.version());
+        ForgetCommandInput::new(version, managed_versions)
     }
 }
 
@@ -371,11 +374,6 @@ mod tests {
     use crate::path::MockPathConfiguration;
 
     use super::*;
-
-    fn assert_tag_arg(tag_arg: TagArg, expected: TagArg) {
-        assert_eq!(tag_arg.tag, expected.tag);
-        assert_eq!(tag_arg.kind, expected.kind);
-    }
 
     fn kind_str_to_enum(kind: &str) -> TagKind {
         match kind {
@@ -428,13 +426,6 @@ mod tests {
 
         assert_eq!(input.version, expected.version);
         assert_eq!(input.managed_versions, expected.managed_versions);
-    }
-
-    fn forget_test_template(args: Vec<&str>, expected: ForgetArgs) {
-        let matches = setup_clap().try_get_matches_from(args).unwrap();
-        let args = ForgetArgs::from(matches);
-
-        assert_tag_arg(args.tag_arg, expected.tag_arg);
     }
 
     #[test_case("-p", TagKind::Proton; "Add specific Proton GE version")]
@@ -731,8 +722,8 @@ mod tests {
 
     #[test]
     fn forget_without_kind() {
-        let args = vec!["geman", "forget"];
-        let result = setup_clap().try_get_matches_from(args);
+        let command = vec!["geman", "forget"];
+        let result = setup_clap().try_get_matches_from(command);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
@@ -740,9 +731,16 @@ mod tests {
 
     #[test]
     fn forget_with_all_required_args() {
-        let args = vec!["geman", "forget", "-p", "6.20-GE-1"];
-        let expected = ForgetArgs::new(TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton));
-        forget_test_template(args, expected);
+        let command = vec!["geman", "forget", "-p", "6.20-GE-1"];
+
+        let matches = setup_clap().try_get_matches_from(command).unwrap();
+        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")]);
+        let input = ForgetCommandInput::create_from(&matches, managed_versions);
+
+        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")]);
+        let expected = ForgetCommandInput::new(Box::new(Version::new("6.20-GE-1", TagKind::Proton)), managed_versions);
+        assert_eq!(input.version_to_forget.as_ref(), expected.version_to_forget.as_ref());
+        assert_eq!(input.managed_versions, expected.managed_versions);
     }
 
     #[test]

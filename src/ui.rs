@@ -7,17 +7,15 @@ use ge_man_lib::download::response::DownloadedAssets;
 use ge_man_lib::download::{DownloadRequest, GeDownload};
 use ge_man_lib::error::GithubError;
 use ge_man_lib::tag::TagKind;
-use log::debug;
 
 use crate::args::{
-    AddCommandInput, ApplyCommandInput, CheckCommandInput, CopyUserSettingsCommandInput, ForgetArgs, GivenVersion,
-    ListCommandInput, MigrationCommandInput, RemoveCommandInput,
+    AddCommandInput, ApplyCommandInput, CheckCommandInput, CopyUserSettingsCommandInput, ForgetCommandInput,
+    GivenVersion, ListCommandInput, MigrationCommandInput, RemoveCommandInput,
 };
 use crate::compat_tool_app::ApplicationConfig;
 use crate::data::{ManagedVersion, ManagedVersions};
 use crate::filesystem::FilesystemManager;
 use crate::message;
-use crate::path::{overrule, PathConfiguration};
 use crate::progress::{DownloadProgressTracker, ExtractionProgressTracker};
 use crate::version::{Version, Versioned};
 
@@ -56,21 +54,11 @@ impl RemovedAndManagedVersions {
 pub struct CommandHandler<'a> {
     ge_downloader: &'a dyn GeDownload,
     fs_mng: &'a dyn FilesystemManager,
-    // TODO: Remove path_cfg after ui module refactoring is complete
-    path_cfg: &'a dyn PathConfiguration,
 }
 
 impl<'a> CommandHandler<'a> {
-    pub fn new(
-        ge_downloader: &'a dyn GeDownload,
-        fs_mng: &'a dyn FilesystemManager,
-        path_cfg: &'a dyn PathConfiguration,
-    ) -> Self {
-        CommandHandler {
-            ge_downloader,
-            fs_mng,
-            path_cfg,
-        }
+    pub fn new(ge_downloader: &'a dyn GeDownload, fs_mng: &'a dyn FilesystemManager) -> Self {
+        CommandHandler { ge_downloader, fs_mng }
     }
 
     fn list_line(&self, version: &ManagedVersion, compat_tool_dir_name: Option<&String>, app_name: &str) -> String {
@@ -81,21 +69,6 @@ impl<'a> CommandHandler<'a> {
         }
 
         version.tag().value().clone()
-    }
-
-    fn read_managed_versions(&self) -> anyhow::Result<ManagedVersions> {
-        let path = self.path_cfg.managed_versions_config(overrule::xdg_data_home());
-        debug!("Reading managed versions from the following file: {}", path.display());
-        ManagedVersions::from_file(&path)
-            .context(format!("Could not read managed_versions.json from {}", path.display()))
-    }
-
-    fn write_managed_versions(&self, managed_versions: ManagedVersions) -> anyhow::Result<()> {
-        let path = self.path_cfg.managed_versions_config(overrule::xdg_data_home());
-        debug!("Writing managed versions from the following file: {}", path.display());
-        managed_versions
-            .write_to_file(&path)
-            .context(format!("Could not write managed_versions.json to {}", path.display()))
     }
 
     pub fn list_versions(
@@ -367,33 +340,31 @@ impl<'a> CommandHandler<'a> {
         Ok(())
     }
 
-    pub fn forget(&self, stdout: &mut impl Write, args: ForgetArgs) -> anyhow::Result<()> {
-        let version = args.tag_arg.version();
-        let mut managed_versions = self.read_managed_versions()?;
-        if managed_versions.remove(&version).is_none() {
-            bail!("Failed to forget version: Version is not managed");
-        }
+    pub fn forget(&self, input: ForgetCommandInput) -> anyhow::Result<RemovedAndManagedVersions> {
+        let ForgetCommandInput {
+            version_to_forget,
+            mut managed_versions,
+        } = input;
 
-        self.write_managed_versions(managed_versions)?;
-        writeln!(stdout, "{} is now not managed by GE Helper", version).unwrap();
-        Ok(())
+        let forgotten_version = match managed_versions.remove(version_to_forget.as_ref()) {
+            Some(version) => version,
+            None => bail!("Failed to forget version: Version is not managed"),
+        };
+
+        Ok(RemovedAndManagedVersions::new(forgotten_version, managed_versions))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use std::{fs, io};
 
     use anyhow::bail;
-    use assert_fs::TempDir;
     use ge_man_lib::download::response::{DownloadedArchive, DownloadedChecksum, GeRelease};
-    use ge_man_lib::tag::Tag;
     use mockall::mock;
 
-    use crate::args::TagArg;
     use crate::filesystem::MockFilesystemManager;
-    use crate::path::MockPathConfiguration;
 
     use super::*;
 
@@ -452,90 +423,57 @@ mod tests {
         }
     }
 
-    fn proton_6_20_1() -> ManagedVersion {
-        ManagedVersion::from(Version::proton("6.20-GE-1"))
-    }
-
-    fn setup_managed_versions(json_path: &Path, versions: Vec<ManagedVersion>) {
-        fs::create_dir_all(json_path.parent().unwrap()).unwrap();
-        let managed_versions = ManagedVersions::new(versions);
-        managed_versions.write_to_file(json_path).unwrap();
-    }
-
     #[test]
-    fn forget_should_print_success_message() {
-        let args = ForgetArgs::new(TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton));
+    fn forget_should_remove_version_from_managed_versions() {
         let fs_mng = MockFilesystemManager::new();
         let ge_downloader = MockDownloader::new();
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(&json_path, vec![proton_6_20_1()]);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .times(2)
-            .returning(move |_| json_path.clone());
+        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")]);
+        let input = ForgetCommandInput::new(
+            Box::new(Version::new("6.20-GE-1", TagKind::Proton)),
+            managed_versions.clone(),
+        );
 
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
-
-        let mut stdout = AssertLines::new();
-        command_handler.forget(&mut stdout, args).unwrap();
-
-        stdout.assert_line(0, "6.20-GE-1 (Proton) is now not managed by GE Helper");
+        let removed_and_managed_versions = command_handler.forget(input).unwrap();
+        assert!(removed_and_managed_versions.managed_versions.vec_ref().is_empty());
+        assert_eq!(removed_and_managed_versions.version, managed_versions.vec_ref()[0]);
     }
 
     #[test]
-    fn forget_should_print_error_message() {
-        let args = ForgetArgs::new(TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton));
+    fn forget_should_print_error_message_when_version_does_not_exist() {
         let fs_mng = MockFilesystemManager::new();
         let ge_downloader = MockDownloader::new();
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(&json_path, vec![]);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
-
-        let mut stdout = AssertLines::new();
-        let result = command_handler.forget(&mut stdout, args);
+        let input = ForgetCommandInput::new(
+            Box::new(Version::new("6.20-GE-1", TagKind::Proton)),
+            ManagedVersions::default(),
+        );
+        let result = command_handler.forget(input);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
         assert_eq!(err.to_string(), "Failed to forget version: Version is not managed");
-        stdout.assert_empty();
-    }
-
-    fn list_test_template(stdout: &mut AssertLines, stderr: &mut AssertLines, input: ListCommandInput) {
-        // A lot of these variables will disappear once more refactorings have been completed.
-        let fs_mng = MockFilesystemManager::new();
-        let ge_downloader = MockDownloader::new();
-
-        let path_cfg = MockPathConfiguration::new();
-
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
-        command_handler.list_versions(stdout, stderr, input);
     }
 
     #[test]
     fn list_steam_newest_version() {
+        let fs_mng = MockFilesystemManager::new();
+        let ge_downloader = MockDownloader::new();
+
+        let mut stdout = AssertLines::new();
+        let mut stderr = AssertLines::new();
         let managed_versions = ManagedVersions::new(vec![
             ManagedVersion::new("GE-Proton7-22", TagKind::Proton, ""),
             ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
             ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
         ]);
         let input = ListCommandInput::new(TagKind::Proton, true, None, managed_versions, String::from("Steam"));
-
-        let mut stdout = AssertLines::new();
-        let mut stderr = AssertLines::new();
-        list_test_template(&mut stdout, &mut stderr, input);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
+        command_handler.list_versions(&mut stdout, &mut stderr, input);
 
         stdout.assert_count(3);
         stdout.assert_line(0, "Proton GE:");
@@ -545,6 +483,11 @@ mod tests {
 
     #[test]
     fn list_newest_steam_version_with_in_use_info() {
+        let fs_mng = MockFilesystemManager::new();
+        let ge_downloader = MockDownloader::new();
+
+        let mut stdout = AssertLines::new();
+        let mut stderr = AssertLines::new();
         let managed_versions = ManagedVersions::new(vec![
             ManagedVersion::new("GE-Proton7-22", TagKind::Proton, "GE-Proton7-22"),
             ManagedVersion::new("6.21-GE-1", TagKind::Proton, "6.21-GE-1"),
@@ -554,13 +497,11 @@ mod tests {
             TagKind::Proton,
             true,
             Some(String::from("GE-Proton7-22")),
-            managed_versions,
+            managed_versions.clone(),
             String::from("Steam"),
         );
-
-        let mut stdout = AssertLines::new();
-        let mut stderr = AssertLines::new();
-        list_test_template(&mut stdout, &mut stderr, input);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
+        command_handler.list_versions(&mut stdout, &mut stderr, input);
 
         stdout.assert_count(3);
         stdout.assert_line(0, "Proton GE:");
@@ -570,16 +511,19 @@ mod tests {
 
     #[test]
     fn list_steam_versions() {
+        let fs_mng = MockFilesystemManager::new();
+        let ge_downloader = MockDownloader::new();
+
+        let mut stdout = AssertLines::new();
+        let mut stderr = AssertLines::new();
         let managed_versions = ManagedVersions::new(vec![
             ManagedVersion::new("GE-Proton7-22", TagKind::Proton, "GE-Proton7-22"),
             ManagedVersion::new("6.21-GE-1", TagKind::Proton, "6.21-GE-1"),
             ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6.20-GE-1"),
         ]);
         let input = ListCommandInput::new(TagKind::Proton, false, None, managed_versions, String::from("Steam"));
-
-        let mut stdout = AssertLines::new();
-        let mut stderr = AssertLines::new();
-        list_test_template(&mut stdout, &mut stderr, input);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
+        command_handler.list_versions(&mut stdout, &mut stderr, input);
 
         stdout.assert_count(5);
         stdout.assert_line(0, "Proton GE:");
@@ -591,6 +535,11 @@ mod tests {
 
     #[test]
     fn list_steam_versions_with_in_use_info() {
+        let fs_mng = MockFilesystemManager::new();
+        let ge_downloader = MockDownloader::new();
+
+        let mut stdout = AssertLines::new();
+        let mut stderr = AssertLines::new();
         let managed_versions = ManagedVersions::new(vec![
             ManagedVersion::new("GE-Proton7-22", TagKind::Proton, "GE-Proton7-22"),
             ManagedVersion::new("6.21-GE-1", TagKind::Proton, "6.21-GE-1"),
@@ -603,10 +552,8 @@ mod tests {
             managed_versions,
             String::from("Steam"),
         );
-
-        let mut stdout = AssertLines::new();
-        let mut stderr = AssertLines::new();
-        list_test_template(&mut stdout, &mut stderr, input);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
+        command_handler.list_versions(&mut stdout, &mut stderr, input);
 
         stdout.assert_count(5);
         stdout.assert_line(0, "Proton GE:");
@@ -636,12 +583,7 @@ mod tests {
             .once()
             .returning(|_, _| Ok(ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")));
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(&json_path, vec![]);
-
-        let path_cfg = MockPathConfiguration::new();
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
         let managed_versions = ManagedVersions::new(Vec::new());
@@ -685,12 +627,7 @@ mod tests {
             .once()
             .returning(|_, _| Ok(ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")));
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(&json_path, vec![]);
-
-        let path_cfg = MockPathConfiguration::new();
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
         let managed_versions = ManagedVersions::new(Vec::new());
@@ -714,12 +651,7 @@ mod tests {
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_setup_version().never();
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(&json_path, vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")]);
-
-        let path_cfg = MockPathConfiguration::new();
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
         let managed_versions =
@@ -747,18 +679,13 @@ mod tests {
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_setup_version().never();
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(&json_path, managed_versions.vec_ref().clone());
-
         let mut ge_downloader = MockDownloader::new();
         ge_downloader
             .expect_fetch_release()
             .once()
             .returning(move |_, _| Ok(GeRelease::new(String::from(tag), Vec::new())));
 
-        let path_cfg = MockPathConfiguration::new();
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let input = AddCommandInput::new(
             GivenVersion::Latest { kind: TagKind::Proton },
@@ -776,8 +703,6 @@ mod tests {
     #[test]
     fn remove_existing_version() {
         let ge_downloader = MockDownloader::new();
-        let path_cfg = MockPathConfiguration::new();
-
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_remove_version().once().returning(|_| Ok(()));
 
@@ -789,7 +714,7 @@ mod tests {
         ]);
         let input = RemoveCommandInput::new(managed_versions, version_to_remove.clone(), steam_config_path);
 
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
         let removed_and_managed_versions = command_handler.remove(input).unwrap();
         assert_eq!(removed_and_managed_versions.managed_versions.vec_ref().len(), 1);
         assert_eq!(
@@ -802,8 +727,6 @@ mod tests {
     #[test]
     fn remove_version_used_by_app_config() {
         let ge_downloader = MockDownloader::new();
-        let path_cfg = MockPathConfiguration::new();
-
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_remove_version().never();
 
@@ -816,7 +739,7 @@ mod tests {
         let version_to_remove = ManagedVersion::new("6.21-GE-2", TagKind::Proton, "Proton-6.21-GE-2");
         let input = RemoveCommandInput::new(managed_versions, version_to_remove, steam_config_path);
 
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
         let result = command_handler.remove(input);
         assert!(result.is_err());
 
@@ -829,8 +752,7 @@ mod tests {
 
     #[test]
     fn check_with_successful_requests() {
-        let args = CheckCommandInput::new(None);
-
+        let fs_mng = MockFilesystemManager::new();
         let mut ge_downloader = MockDownloader::new();
         ge_downloader
             .expect_fetch_release()
@@ -848,14 +770,12 @@ mod tests {
             .withf(|tag, kind| tag.is_none() && kind.eq(&TagKind::lol()))
             .returning(|_, _| Ok(GeRelease::new(String::from("6.16-GE-3-LoL"), vec![])));
 
-        let path_cfg = MockPathConfiguration::new();
-        let fs_mng = MockFilesystemManager::new();
-
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let mut stdout = AssertLines::new();
         let mut stderr = AssertLines::new();
-        command_handler.check(&mut stdout, &mut stderr, args);
+        let input = CheckCommandInput::new(None);
+        command_handler.check(&mut stdout, &mut stderr, input);
 
         stdout.assert_line(0, "These are the latest releases.");
         stdout.assert_line(1, "");
@@ -866,8 +786,6 @@ mod tests {
 
     #[test]
     fn check_with_only_errors() {
-        let args = CheckCommandInput::new(None);
-
         let mut ge_downloader = MockDownloader::new();
         ge_downloader
             .expect_fetch_release()
@@ -885,14 +803,14 @@ mod tests {
             .withf(|tag, kind| tag.is_none() && kind.eq(&TagKind::lol()))
             .returning(|_, _| Err(GithubError::NoTags));
 
-        let path_cfg = MockPathConfiguration::new();
         let fs_mng = MockFilesystemManager::new();
 
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let mut stdout = AssertLines::new();
         let mut stderr = AssertLines::new();
-        command_handler.check(&mut stdout, &mut stderr, args);
+        let input = CheckCommandInput::new(None);
+        command_handler.check(&mut stdout, &mut stderr, input);
 
         stdout.assert_line(0, "These are the latest releases.");
         stderr.assert_line(
@@ -913,9 +831,8 @@ mod tests {
     fn migrate_already_managed_version() {
         let ge_downloader = MockDownloader::new();
         let fs_mng = MockFilesystemManager::new();
-        let path_cfg = MockPathConfiguration::new();
 
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let input = MigrationCommandInput::new(
             PathBuf::from("invalid-path"),
@@ -935,15 +852,13 @@ mod tests {
     #[test]
     fn migrate_not_present_version() {
         let ge_downloader = MockDownloader::new();
-        let path_cfg = MockPathConfiguration::new();
-
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng
             .expect_migrate_folder()
             .once()
             .returning(|_, _| Ok(ManagedVersion::new("6.20-GE-1", TagKind::Proton, "Proton-6.20-GE-1")));
 
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let input = MigrationCommandInput::new(
             PathBuf::from("valid-path"),
@@ -961,15 +876,13 @@ mod tests {
     #[test]
     fn migrate_fails_due_to_filesystem_error() {
         let ge_downloader = MockDownloader::new();
-        let path_cfg = MockPathConfiguration::new();
-
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng
             .expect_migrate_folder()
             .once()
             .returning(|_, _| bail!("Mocked error"));
 
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let input = MigrationCommandInput::new(
             PathBuf::from("valid-path"),
@@ -988,12 +901,7 @@ mod tests {
         let ge_downloader = MockDownloader::new();
         let fs_mng = MockFilesystemManager::new();
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(&json_path, vec![]);
-
-        let path_cfg = MockPathConfiguration::new();
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
         let managed_versions = ManagedVersions::new(Vec::new());
@@ -1019,15 +927,7 @@ mod tests {
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_apply_to_app_config().once().returning(|_| Ok(()));
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(
-            &json_path,
-            vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "Proton-6.20-GE-1")],
-        );
-
-        let path_cfg = MockPathConfiguration::new();
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let managed_versions =
             ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6-20-GE-1")]);
@@ -1049,15 +949,7 @@ mod tests {
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_apply_to_app_config().once().returning(|_| Ok(()));
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(
-            &json_path,
-            vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "Proton-6.20-GE-1")],
-        );
-
-        let path_cfg = MockPathConfiguration::new();
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
         let managed_versions =
@@ -1088,15 +980,7 @@ mod tests {
             .once()
             .returning(|_| bail!("Mocked error"));
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(
-            &json_path,
-            vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "Proton-6.20-GE-1")],
-        );
-
-        let path_cfg = MockPathConfiguration::new();
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
         let managed_versions =
@@ -1118,15 +1002,13 @@ mod tests {
     #[test]
     fn copy_user_settings_for_present_versions() {
         let ge_downloader = MockDownloader::new();
-        let path_cfg = MockPathConfiguration::new();
-
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_copy_user_settings().once().returning(|_, _| Ok(()));
 
         let src_version = ManagedVersion::new("6.20-GE-1", TagKind::Proton, "");
         let dst_version = ManagedVersion::new("6.21-GE-1", TagKind::Proton, "");
         let input = CopyUserSettingsCommandInput::new(src_version, dst_version);
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let mut stdout = AssertLines::new();
         command_handler.copy_user_settings(&mut stdout, input).unwrap();
@@ -1140,8 +1022,6 @@ mod tests {
     #[test]
     fn copy_user_settings_fails_on_filesystem_operation() {
         let ge_downloader = MockDownloader::new();
-        let path_cfg = MockPathConfiguration::new();
-
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng
             .expect_copy_user_settings()
@@ -1151,7 +1031,7 @@ mod tests {
         let src_version = ManagedVersion::new("6.20-GE-1", TagKind::Proton, "");
         let dst_version = ManagedVersion::new("6.21-GE-1", TagKind::Proton, "");
         let input = CopyUserSettingsCommandInput::new(src_version, dst_version);
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let mut stdout = AssertLines::new();
         let result = command_handler.copy_user_settings(&mut stdout, input);
