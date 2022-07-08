@@ -10,8 +10,8 @@ use ge_man_lib::tag::TagKind;
 use log::debug;
 
 use crate::args::{
-    AddCommandInput, ApplyCommandInput, CheckArgs, CopyUserSettingsArgs, ForgetArgs, GivenVersion, ListCommandInput,
-    MigrationArgs, RemoveCommandInput,
+    AddCommandInput, ApplyCommandInput, CheckCommandInput, CopyUserSettingsArgs, ForgetArgs, GivenVersion,
+    ListCommandInput, MigrationArgs, RemoveCommandInput,
 };
 use crate::compat_tool_app::ApplicationConfig;
 use crate::data::{ManagedVersion, ManagedVersions};
@@ -258,8 +258,8 @@ impl<'a> CommandHandler<'a> {
         Ok(RemovedAndManagedVersions::new(version_to_remove, managed_versions))
     }
 
-    pub fn check(&self, stdout: &mut impl Write, stderr: &mut impl Write, args: CheckArgs) {
-        match args.kind {
+    pub fn check(&self, stdout: &mut impl Write, stderr: &mut impl Write, input: CheckCommandInput) {
+        match input.kind {
             Some(kind) => match self.ge_downloader.fetch_release(None, kind) {
                 Ok(release) => {
                     writeln!(
@@ -275,40 +275,24 @@ impl<'a> CommandHandler<'a> {
                 }
             },
             None => {
-                let proton = self.ge_downloader.fetch_release(None, TagKind::Proton);
-                let wine = self.ge_downloader.fetch_release(None, TagKind::wine());
-                let lol = self.ge_downloader.fetch_release(None, TagKind::lol());
+                let tag_kinds = vec![TagKind::Proton, TagKind::wine(), TagKind::lol()];
 
                 writeln!(stdout, "These are the latest releases.").unwrap();
                 writeln!(stdout).unwrap();
-                match proton {
-                    Ok(release) => writeln!(stdout, "Proton GE: {}", release.tag_name).unwrap(),
-                    Err(err) => writeln!(
-                        stderr,
-                        "Proton GE: Could not fetch release information from GitHub: {}",
-                        err
-                    )
-                    .unwrap(),
-                }
-
-                match wine {
-                    Ok(release) => writeln!(stdout, "Wine GE: {}", release.tag_name).unwrap(),
-                    Err(err) => writeln!(
-                        stderr,
-                        "Wine GE: Could not fetch release information from GitHub: {}",
-                        err
-                    )
-                    .unwrap(),
-                }
-
-                match lol {
-                    Ok(release) => writeln!(stdout, "Wine GE - LoL: {}", release.tag_name).unwrap(),
-                    Err(err) => writeln!(
-                        stderr,
-                        "Wine GE - LoL: Could not fetch release information from GitHub: {}",
-                        err
-                    )
-                    .unwrap(),
+                for kind in tag_kinds {
+                    let release = self.ge_downloader.fetch_release(None, kind);
+                    match release {
+                        Ok(release) => {
+                            writeln!(stdout, "{}: {}", kind.compatibility_tool_name(), release.tag_name).unwrap()
+                        }
+                        Err(err) => writeln!(
+                            stderr,
+                            "{} - Could not fetch release information from GitHub: {}",
+                            kind.compatibility_tool_name(),
+                            err
+                        )
+                        .unwrap(),
+                    }
                 }
             }
         }
@@ -849,7 +833,7 @@ mod tests {
 
     #[test]
     fn check_with_successful_requests() {
-        let args = CheckArgs::new(None);
+        let args = CheckCommandInput::new(None);
 
         let mut ge_downloader = MockDownloader::new();
         ge_downloader
@@ -881,12 +865,12 @@ mod tests {
         stdout.assert_line(1, "");
         stdout.assert_line(2, "Proton GE: 6.20-GE-1");
         stdout.assert_line(3, "Wine GE: 6.20-GE-1");
-        stdout.assert_line(4, "Wine GE - LoL: 6.16-GE-3-LoL");
+        stdout.assert_line(4, "Wine GE (LoL): 6.16-GE-3-LoL");
     }
 
     #[test]
     fn check_with_only_errors() {
-        let args = CheckArgs::new(None);
+        let args = CheckCommandInput::new(None);
 
         let mut ge_downloader = MockDownloader::new();
         ge_downloader
@@ -917,15 +901,15 @@ mod tests {
         stdout.assert_line(0, "These are the latest releases.");
         stderr.assert_line(
             0,
-            "Proton GE: Could not fetch release information from GitHub: No tags could be found",
+            "Proton GE - Could not fetch release information from GitHub: No tags could be found",
         );
         stderr.assert_line(
             1,
-            "Wine GE: Could not fetch release information from GitHub: No tags could be found",
+            "Wine GE - Could not fetch release information from GitHub: No tags could be found",
         );
         stderr.assert_line(
             2,
-            "Wine GE - LoL: Could not fetch release information from GitHub: No tags could be found",
+            "Wine GE (LoL) - Could not fetch release information from GitHub: No tags could be found",
         );
     }
 

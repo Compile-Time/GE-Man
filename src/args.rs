@@ -228,32 +228,32 @@ impl RemoveCommandInput {
     }
 }
 
-pub struct CheckArgs {
+pub struct CheckCommandInput {
     pub kind: Option<TagKind>,
 }
 
-impl CheckArgs {
+impl CheckCommandInput {
     pub fn new(kind: Option<TagKind>) -> Self {
-        CheckArgs { kind }
+        CheckCommandInput { kind }
     }
 }
 
-impl From<ArgMatches> for CheckArgs {
+impl From<ArgMatches> for CheckCommandInput {
     fn from(matches: ArgMatches) -> Self {
         let matches = matches.subcommand_matches(command_names::CHECK).unwrap();
         if matches.is_present(arg_group_names::TAG) {
             let tag_arg = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
             let kind = tag_arg.kind;
-            CheckArgs::new(Some(kind))
+            CheckCommandInput::new(Some(kind))
         } else {
-            CheckArgs::new(None)
+            CheckCommandInput::new(None)
         }
     }
 }
 
-impl Default for CheckArgs {
+impl Default for CheckCommandInput {
     fn default() -> Self {
-        CheckArgs::new(None)
+        CheckCommandInput::new(None)
     }
 }
 
@@ -400,9 +400,9 @@ mod tests {
         assert_eq!(input.managed_versions, expected.managed_versions);
     }
 
-    fn check_test_template(args: Vec<&str>, expected: CheckArgs) {
+    fn check_test_template(args: Vec<&str>, expected: CheckCommandInput) {
         let matches = setup_clap().try_get_matches_from(args).unwrap();
-        let args = CheckArgs::from(matches);
+        let args = CheckCommandInput::from(matches);
 
         assert_eq!(args.kind, expected.kind);
     }
@@ -562,7 +562,7 @@ mod tests {
     #[test]
     fn check_without_args_should_not_throw_error() {
         let args = vec!["geman", "check"];
-        check_test_template(args, CheckArgs::default());
+        check_test_template(args, CheckCommandInput::default());
     }
 
     #[test_case("-p"; "Check for Proton GE")]
@@ -570,7 +570,7 @@ mod tests {
     #[test_case("-l"; "Check for Wine GE LoL")]
     fn check_with_tag_kind(kind: &str) {
         let args = vec!["geman", "check", kind];
-        let expected = CheckArgs::new(Some(kind_str_to_enum(kind)));
+        let expected = CheckCommandInput::new(Some(kind_str_to_enum(kind)));
         check_test_template(args, expected);
     }
 

@@ -5,8 +5,8 @@ use anyhow::{bail, Context};
 use ge_man_lib::download::GeDownloader;
 
 use ge_man::args::{
-    AddCommandInput, ApplyCommandInput, CheckArgs, CopyUserSettingsArgs, ForgetArgs, GivenVersion, ListCommandInput,
-    MigrationArgs, RemoveCommandInput,
+    AddCommandInput, ApplyCommandInput, CheckCommandInput, CopyUserSettingsArgs, ForgetArgs, GivenVersion,
+    ListCommandInput, MigrationArgs, RemoveCommandInput,
 };
 use ge_man::clap::command_names::{
     ADD, APPLY, CHECK, FORGET, LIST, MIGRATE, PROTON_USER_SETTINGS, REMOVE, USER_SETTINGS_COPY,
@@ -98,7 +98,7 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some(CHECK) => {
-            command_handler.check(&mut out_handle, &mut err_handle, CheckArgs::from(matches));
+            command_handler.check(&mut out_handle, &mut err_handle, CheckCommandInput::from(matches));
             Ok(())
         }
         Some(MIGRATE) => command_handler.migrate(&mut out_handle, MigrationArgs::from(matches)),
