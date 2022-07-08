@@ -5,7 +5,7 @@ use anyhow::{bail, Context};
 use ge_man_lib::download::GeDownloader;
 
 use ge_man::args::{
-    AddCommandInput, ApplyCommandInput, CheckCommandInput, CopyUserSettingsArgs, ForgetArgs, GivenVersion,
+    AddCommandInput, ApplyCommandInput, CheckCommandInput, CopyUserSettingsCommandInput, ForgetArgs, GivenVersion,
     ListCommandInput, MigrationCommandInput, RemoveCommandInput,
 };
 use ge_man::clap::command_names::{
@@ -130,7 +130,11 @@ fn main() -> anyhow::Result<()> {
             let sub_cmd_matches = matches.subcommand_matches(PROTON_USER_SETTINGS).unwrap();
             match sub_cmd_matches.subcommand_name() {
                 Some(USER_SETTINGS_COPY) => {
-                    command_handler.copy_user_settings(&mut out_handle, CopyUserSettingsArgs::from(matches))
+                    let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
+                    let managed_versions = ManagedVersions::from_file(&managed_versions_path)?;
+
+                    let input = CopyUserSettingsCommandInput::create_from(&matches, &managed_versions)?;
+                    command_handler.copy_user_settings(&mut out_handle, input)
                 }
                 _ => Ok(()),
             }

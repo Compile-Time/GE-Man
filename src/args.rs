@@ -308,33 +308,37 @@ impl ApplyCommandInput {
     }
 }
 
-pub struct CopyUserSettingsArgs {
-    pub src_tag: Tag,
-    pub dst_tag: Tag,
+#[derive(Debug)]
+pub struct CopyUserSettingsCommandInput {
+    pub src_version: ManagedVersion,
+    pub dst_version: ManagedVersion,
 }
 
-impl CopyUserSettingsArgs {
-    pub fn new<T: Into<Tag>>(src_tag: T, dst_tag: T) -> Self {
-        let src_tag = src_tag.into();
-        let dst_tag = dst_tag.into();
-        CopyUserSettingsArgs { src_tag, dst_tag }
+impl CopyUserSettingsCommandInput {
+    pub fn new(src_version: ManagedVersion, dst_version: ManagedVersion) -> Self {
+        Self {
+            src_version,
+            dst_version,
+        }
     }
-}
 
-impl Default for CopyUserSettingsArgs {
-    fn default() -> Self {
-        CopyUserSettingsArgs::new("", "")
-    }
-}
-
-impl From<ArgMatches> for CopyUserSettingsArgs {
-    fn from(matches: ArgMatches) -> Self {
+    pub fn create_from(matches: &ArgMatches, managed_versions: &ManagedVersions) -> anyhow::Result<Self> {
         let matches = matches.subcommand_matches(command_names::PROTON_USER_SETTINGS).unwrap();
         let matches = matches.subcommand_matches(command_names::USER_SETTINGS_COPY).unwrap();
+        // Clap handles missing args
         let src_tag = matches.value_of(arg_names::SOURCE_ARG).unwrap();
         let dst_tag = matches.value_of(arg_names::DESTINATION_ARG).unwrap();
 
-        CopyUserSettingsArgs::new(src_tag, dst_tag)
+        // The user-settings.py file only exists for Proton versions.
+        let src_version = match managed_versions.find_version(&Version::new(src_tag, TagKind::Proton)) {
+            Some(v) => v,
+            None => bail!("Given source Proton version does not exist"),
+        };
+        let dst_version = match managed_versions.find_version(&Version::new(dst_tag, TagKind::Proton)) {
+            Some(v) => v,
+            None => bail!("Given destination Proton version does not exist"),
+        };
+        Ok(CopyUserSettingsCommandInput::new(src_version, dst_version))
     }
 }
 
@@ -424,14 +428,6 @@ mod tests {
 
         assert_eq!(input.version, expected.version);
         assert_eq!(input.managed_versions, expected.managed_versions);
-    }
-
-    fn copy_user_settings_test_template(args: Vec<&str>, expected: CopyUserSettingsArgs) {
-        let matches = setup_clap().try_get_matches_from(args).unwrap();
-        let args = CopyUserSettingsArgs::from(matches);
-
-        assert_eq!(args.src_tag, expected.src_tag);
-        assert_eq!(args.dst_tag, expected.dst_tag);
     }
 
     fn forget_test_template(args: Vec<&str>, expected: ForgetArgs) {
@@ -664,11 +660,44 @@ mod tests {
 
     #[test]
     fn copy_user_settings_with_all_required_args() {
-        let args = vec!["geman", "user-settings", "copy", "-s", "6.20-GE-1", "-d", "6.21-GE-1"];
-        let mut expected = CopyUserSettingsArgs::default();
-        expected.src_tag = Tag::from("6.20-GE-1");
-        expected.dst_tag = Tag::from("6.21-GE-1");
-        copy_user_settings_test_template(args, expected);
+        let command = vec!["geman", "user-settings", "copy", "-s", "6.20-GE-1", "-d", "6.21-GE-1"];
+        let matches = setup_clap().try_get_matches_from(command).unwrap();
+        let managed_versions = ManagedVersions::new(vec![
+            ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
+        ]);
+        let input = CopyUserSettingsCommandInput::create_from(&matches, &managed_versions).unwrap();
+
+        let src_version = ManagedVersion::new("6.20-GE-1", TagKind::Proton, "");
+        let dst_version = ManagedVersion::new("6.21-GE-1", TagKind::Proton, "");
+        let expected = CopyUserSettingsCommandInput::new(src_version, dst_version);
+
+        assert_eq!(input.src_version, expected.src_version);
+        assert_eq!(input.dst_version, expected.dst_version);
+    }
+
+    #[test]
+    fn copy_user_settings_where_stored_source_tag_does_not_exist() {
+        let command = vec!["geman", "user-settings", "copy", "-s", "6.20-GE-1", "-d", "6.21-GE-1"];
+        let matches = setup_clap().try_get_matches_from(command).unwrap();
+        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-1", TagKind::Proton, "")]);
+        let result = CopyUserSettingsCommandInput::create_from(&matches, &managed_versions);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert_eq!(err.to_string(), "Given source Proton version does not exist");
+    }
+
+    #[test]
+    fn copy_user_settings_where_stored_destination_tag_does_not_exist() {
+        let command = vec!["geman", "user-settings", "copy", "-s", "6.20-GE-1", "-d", "6.21-GE-1"];
+        let matches = setup_clap().try_get_matches_from(command).unwrap();
+        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")]);
+        let result = CopyUserSettingsCommandInput::create_from(&matches, &managed_versions);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert_eq!(err.to_string(), "Given destination Proton version does not exist");
     }
 
     #[test]

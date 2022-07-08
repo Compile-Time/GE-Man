@@ -10,7 +10,7 @@ use ge_man_lib::tag::TagKind;
 use log::debug;
 
 use crate::args::{
-    AddCommandInput, ApplyCommandInput, CheckCommandInput, CopyUserSettingsArgs, ForgetArgs, GivenVersion,
+    AddCommandInput, ApplyCommandInput, CheckCommandInput, CopyUserSettingsCommandInput, ForgetArgs, GivenVersion,
     ListCommandInput, MigrationCommandInput, RemoveCommandInput,
 };
 use crate::compat_tool_app::ApplicationConfig;
@@ -346,19 +346,15 @@ impl<'a> CommandHandler<'a> {
         Ok(())
     }
 
-    pub fn copy_user_settings(&self, stdout: &mut impl Write, args: CopyUserSettingsArgs) -> anyhow::Result<()> {
-        let managed_versions = self.read_managed_versions()?;
-        let src_version = Version::new(args.src_tag, TagKind::Proton);
-        let dst_version = Version::new(args.dst_tag, TagKind::Proton);
-
-        let src_version = match managed_versions.find_version(&src_version) {
-            Some(v) => v,
-            None => bail!("Given source Proton version does not exist"),
-        };
-        let dst_version = match managed_versions.find_version(&dst_version) {
-            Some(v) => v,
-            None => bail!("Given destination Proton version does not exist"),
-        };
+    pub fn copy_user_settings(
+        &self,
+        stdout: &mut impl Write,
+        input: CopyUserSettingsCommandInput,
+    ) -> anyhow::Result<()> {
+        let CopyUserSettingsCommandInput {
+            src_version,
+            dst_version,
+        } = input;
 
         self.fs_mng.copy_user_settings(&src_version, &dst_version)?;
 
@@ -1120,87 +1116,20 @@ mod tests {
     }
 
     #[test]
-    fn copy_user_settings_where_source_tag_does_not_exist() {
-        let args = CopyUserSettingsArgs::new("6.20-GE-1", "6.21-GE-1");
-        let ge_downloader = MockDownloader::new();
-        let fs_mng = MockFilesystemManager::new();
-
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(&json_path, vec![ManagedVersion::new("6.21-GE-1", TagKind::Proton, "")]);
-
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
-
-        let mut stdout = AssertLines::new();
-        let result = command_handler.copy_user_settings(&mut stdout, args);
-        assert!(result.is_err());
-
-        let err = result.unwrap_err();
-        assert_eq!(err.to_string(), "Given source Proton version does not exist");
-        stdout.assert_empty();
-    }
-
-    #[test]
-    fn copy_user_settings_where_destination_tag_does_not_exist() {
-        let args = CopyUserSettingsArgs::new("6.20-GE-1", "6.21-GE-1");
-        let ge_downloader = MockDownloader::new();
-        let fs_mng = MockFilesystemManager::new();
-
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(&json_path, vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")]);
-
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
-
-        let mut stdout = AssertLines::new();
-        let result = command_handler.copy_user_settings(&mut stdout, args);
-        assert!(result.is_err());
-
-        let err = result.unwrap_err();
-        assert_eq!(err.to_string(), "Given destination Proton version does not exist");
-        stdout.assert_empty();
-    }
-
-    #[test]
     fn copy_user_settings_for_present_versions() {
-        let args = CopyUserSettingsArgs::new("6.20-GE-1", "6.21-GE-1");
         let ge_downloader = MockDownloader::new();
+        let path_cfg = MockPathConfiguration::new();
 
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_copy_user_settings().once().returning(|_, _| Ok(()));
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(
-            &json_path,
-            vec![
-                ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
-            ],
-        );
-
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
+        let src_version = ManagedVersion::new("6.20-GE-1", TagKind::Proton, "");
+        let dst_version = ManagedVersion::new("6.21-GE-1", TagKind::Proton, "");
+        let input = CopyUserSettingsCommandInput::new(src_version, dst_version);
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
-        command_handler.copy_user_settings(&mut stdout, args).unwrap();
+        command_handler.copy_user_settings(&mut stdout, input).unwrap();
 
         stdout.assert_line(
             0,
@@ -1210,8 +1139,8 @@ mod tests {
 
     #[test]
     fn copy_user_settings_fails_on_filesystem_operation() {
-        let args = CopyUserSettingsArgs::new("6.20-GE-1", "6.21-GE-1");
         let ge_downloader = MockDownloader::new();
+        let path_cfg = MockPathConfiguration::new();
 
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng
@@ -1219,26 +1148,13 @@ mod tests {
             .once()
             .returning(|_, _| bail!("Mocked error"));
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(
-            &json_path,
-            vec![
-                ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
-            ],
-        );
-
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
+        let src_version = ManagedVersion::new("6.20-GE-1", TagKind::Proton, "");
+        let dst_version = ManagedVersion::new("6.21-GE-1", TagKind::Proton, "");
+        let input = CopyUserSettingsCommandInput::new(src_version, dst_version);
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
         let mut stdout = AssertLines::new();
-        let result = command_handler.copy_user_settings(&mut stdout, args);
+        let result = command_handler.copy_user_settings(&mut stdout, input);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
