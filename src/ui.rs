@@ -11,7 +11,7 @@ use log::debug;
 
 use crate::args::{
     AddCommandInput, ApplyCommandInput, CheckCommandInput, CopyUserSettingsArgs, ForgetArgs, GivenVersion,
-    ListCommandInput, MigrationArgs, RemoveCommandInput,
+    ListCommandInput, MigrationCommandInput, RemoveCommandInput,
 };
 use crate::compat_tool_app::ApplicationConfig;
 use crate::data::{ManagedVersion, ManagedVersions};
@@ -298,24 +298,24 @@ impl<'a> CommandHandler<'a> {
         }
     }
 
-    pub fn migrate(&self, stdout: &mut impl Write, args: MigrationArgs) -> anyhow::Result<()> {
-        let version = args.tag_arg.version();
-        let mut managed_versions = self.read_managed_versions()?;
+    pub fn migrate(&self, input: MigrationCommandInput) -> anyhow::Result<NewAndManagedVersions> {
+        let MigrationCommandInput {
+            source_path,
+            version,
+            mut managed_versions,
+        } = input;
 
         if managed_versions.find_version(&version).is_some() {
             bail!("Given version to migrate already exists as a managed version");
         }
 
-        let source_path = &args.source_path;
         let version = self
             .fs_mng
-            .migrate_folder(version, source_path)
+            .migrate_folder(version, &source_path)
             .context("Could not migrate directory")?;
-        let version = managed_versions.add(version)?;
 
-        self.write_managed_versions(managed_versions)?;
-        writeln!(stdout, "Successfully migrated directory as {}", version).unwrap();
-        Ok(())
+        let version = managed_versions.add(version)?;
+        Ok(NewAndManagedVersions::new(version, managed_versions))
     }
 
     pub fn apply(&self, stdout: &mut impl Write, input: ApplyCommandInput) -> anyhow::Result<()> {
@@ -915,33 +915,18 @@ mod tests {
 
     #[test]
     fn migrate_already_managed_version() {
-        let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = MigrationArgs::new(tag_arg, "invalid-path");
-
         let ge_downloader = MockDownloader::new();
         let fs_mng = MockFilesystemManager::new();
-
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(
-            &json_path,
-            vec![ManagedVersion::new(
-                Tag::from("6.20-GE-1"),
-                TagKind::Proton,
-                "Proton-6.20-GE-1",
-            )],
-        );
-
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
+        let path_cfg = MockPathConfiguration::new();
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
-        let mut stdout = AssertLines::new();
-        let result = command_handler.migrate(&mut stdout, args);
+        let input = MigrationCommandInput::new(
+            PathBuf::from("invalid-path"),
+            Version::new("6.20-GE-1", TagKind::Proton),
+            ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6-20-GE-1")]),
+        );
+        let result = command_handler.migrate(input);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -949,15 +934,12 @@ mod tests {
             err.to_string(),
             "Given version to migrate already exists as a managed version"
         );
-        stdout.assert_empty();
     }
 
     #[test]
     fn migrate_not_present_version() {
-        let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = MigrationArgs::new(tag_arg, "migration-source");
-
         let ge_downloader = MockDownloader::new();
+        let path_cfg = MockPathConfiguration::new();
 
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng
@@ -965,29 +947,25 @@ mod tests {
             .once()
             .returning(|_, _| Ok(ManagedVersion::new("6.20-GE-1", TagKind::Proton, "Proton-6.20-GE-1")));
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(&json_path, vec![]);
-
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .times(2)
-            .returning(move |_| json_path.clone());
-
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
-        let mut stdout = AssertLines::new();
-        command_handler.migrate(&mut stdout, args).unwrap();
-        stdout.assert_line(0, "Successfully migrated directory as 6.20-GE-1 (Proton)");
+        let input = MigrationCommandInput::new(
+            PathBuf::from("valid-path"),
+            Version::new("6.20-GE-1", TagKind::Proton),
+            ManagedVersions::default(),
+        );
+        let new_and_managed_versions = command_handler.migrate(input).unwrap();
+
+        let expected_version = ManagedVersion::new("6.20-GE-1", TagKind::Proton, "Proton-6.20-GE-1");
+        assert_eq!(new_and_managed_versions.managed_versions.vec_ref().len(), 1);
+        assert_eq!(new_and_managed_versions.managed_versions.vec_ref()[0], expected_version);
+        assert_eq!(new_and_managed_versions.version, expected_version);
     }
 
     #[test]
     fn migrate_fails_due_to_filesystem_error() {
-        let tag_arg = TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton);
-        let args = MigrationArgs::new(tag_arg, "migration-source");
-
         let ge_downloader = MockDownloader::new();
+        let path_cfg = MockPathConfiguration::new();
 
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng
@@ -995,25 +973,18 @@ mod tests {
             .once()
             .returning(|_, _| bail!("Mocked error"));
 
-        let tmp_dir = TempDir::new().unwrap();
-        let json_path = tmp_dir.join("ge_man/managed_versions.json");
-        setup_managed_versions(&json_path, vec![]);
-
-        let mut path_cfg = MockPathConfiguration::new();
-        path_cfg
-            .expect_managed_versions_config()
-            .once()
-            .returning(move |_| json_path.clone());
-
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng, &path_cfg);
 
-        let mut stdout = AssertLines::new();
-        let result = command_handler.migrate(&mut stdout, args);
+        let input = MigrationCommandInput::new(
+            PathBuf::from("valid-path"),
+            Version::new("6.20-GE-1", TagKind::Proton),
+            ManagedVersions::default(),
+        );
+        let result = command_handler.migrate(input);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
         assert_eq!(err.to_string(), "Could not migrate directory");
-        stdout.assert_empty();
     }
 
     #[test]

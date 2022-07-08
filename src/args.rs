@@ -257,25 +257,27 @@ impl Default for CheckCommandInput {
     }
 }
 
-pub struct MigrationArgs {
-    pub tag_arg: TagArg,
+pub struct MigrationCommandInput {
     pub source_path: PathBuf,
+    pub version: Version,
+    pub managed_versions: ManagedVersions,
 }
 
-impl MigrationArgs {
-    pub fn new<P: Into<PathBuf>>(tag_arg: TagArg, source_path: P) -> Self {
-        let source_path = source_path.into();
-        MigrationArgs { tag_arg, source_path }
+impl MigrationCommandInput {
+    pub fn new(source_path: PathBuf, version: Version, managed_versions: ManagedVersions) -> Self {
+        Self {
+            source_path,
+            version,
+            managed_versions,
+        }
     }
-}
 
-impl From<ArgMatches> for MigrationArgs {
-    fn from(matches: ArgMatches) -> Self {
+    pub fn create_from(matches: &ArgMatches, managed_versions: ManagedVersions) -> Self {
         let matches = matches.subcommand_matches(command_names::MIGRATE).unwrap();
         let tag_arg = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
-        let source_path = matches.value_of(arg_names::SOURCE_ARG).unwrap();
+        let source_path = PathBuf::from(matches.value_of(arg_names::SOURCE_ARG).unwrap());
 
-        MigrationArgs::new(tag_arg, PathBuf::from(source_path))
+        MigrationCommandInput::new(source_path, tag_arg.version(), managed_versions)
     }
 }
 
@@ -407,12 +409,13 @@ mod tests {
         assert_eq!(args.kind, expected.kind);
     }
 
-    fn migration_test_template(args: Vec<&str>, expected: MigrationArgs) {
-        let matches = setup_clap().try_get_matches_from(args).unwrap();
-        let args = MigrationArgs::from(matches);
+    fn migration_test_template(command: Vec<&str>, expected: MigrationCommandInput) {
+        let matches = setup_clap().try_get_matches_from(command).unwrap();
+        let input = MigrationCommandInput::create_from(&matches, ManagedVersions::default());
 
-        assert_tag_arg(args.tag_arg, expected.tag_arg);
-        assert_eq!(args.source_path, expected.source_path);
+        assert_eq!(input.source_path, expected.source_path);
+        assert_eq!(input.managed_versions, expected.managed_versions);
+        assert_eq!(input.version, expected.version);
     }
 
     fn apply_test_template(args: Vec<&str>, expected: ApplyCommandInput) {
@@ -603,14 +606,17 @@ mod tests {
         assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
     }
 
-    #[test]
-    fn migrate_with_all_required_args() {
-        let args = vec!["geman", "migrate", "-p", "6.20-GE-1", "-s", "/tmp"];
-        let expected = MigrationArgs::new(
-            TagArg::new(Some(Tag::from("6.20-GE-1")), TagKind::Proton),
-            PathBuf::from("/tmp"),
+    #[test_case("-p", TagKind::Proton; "Migrate for GE Proton")]
+    #[test_case("-w", TagKind::wine(); "Migrate for Wine GE")]
+    #[test_case("-l", TagKind::lol(); "Migrate for Wine GE (LoL)")]
+    fn migrate_with_all_required_args(kind_arg: &str, kind: TagKind) {
+        let command = vec!["geman", "migrate", kind_arg, "6.20-GE-1", "-s", "/tmp/test"];
+        let expected = MigrationCommandInput::new(
+            PathBuf::from("/tmp/test"),
+            Version::new("6.20-GE-1", kind),
+            ManagedVersions::default(),
         );
-        migration_test_template(args, expected);
+        migration_test_template(command, expected);
     }
 
     #[test]

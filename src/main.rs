@@ -6,7 +6,7 @@ use ge_man_lib::download::GeDownloader;
 
 use ge_man::args::{
     AddCommandInput, ApplyCommandInput, CheckCommandInput, CopyUserSettingsArgs, ForgetArgs, GivenVersion,
-    ListCommandInput, MigrationArgs, RemoveCommandInput,
+    ListCommandInput, MigrationCommandInput, RemoveCommandInput,
 };
 use ge_man::clap::command_names::{
     ADD, APPLY, CHECK, FORGET, LIST, MIGRATE, PROTON_USER_SETTINGS, REMOVE, USER_SETTINGS_COPY,
@@ -101,7 +101,24 @@ fn main() -> anyhow::Result<()> {
             command_handler.check(&mut out_handle, &mut err_handle, CheckCommandInput::from(matches));
             Ok(())
         }
-        Some(MIGRATE) => command_handler.migrate(&mut out_handle, MigrationArgs::from(matches)),
+        Some(MIGRATE) => {
+            let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
+            let managed_versions = ManagedVersions::from_file(&managed_versions_path)?;
+
+            let new_and_managed_versions =
+                command_handler.migrate(MigrationCommandInput::create_from(&matches, managed_versions))?;
+
+            new_and_managed_versions
+                .managed_versions
+                .write_to_file(&managed_versions_path)?;
+            writeln!(
+                out_handle,
+                "Successfully migrated directory as {}",
+                new_and_managed_versions.version
+            )
+            .unwrap();
+            Ok(())
+        }
         Some(APPLY) => {
             let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
             let managed_versions = ManagedVersions::from_file(&managed_versions_path)?;
