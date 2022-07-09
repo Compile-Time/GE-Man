@@ -11,10 +11,10 @@ use ge_man::args::{
 use ge_man::clap::command_names::{
     ADD, APPLY, CHECK, FORGET, LIST, MIGRATE, PROTON_USER_SETTINGS, REMOVE, USER_SETTINGS_COPY,
 };
+use ge_man::command_execution::CommandHandler;
 use ge_man::data::ManagedVersions;
 use ge_man::filesystem::FsMng;
 use ge_man::path::{overrule, PathConfig, PathConfiguration};
-use ge_man::ui::CommandHandler;
 use ge_man::{clap, config};
 
 fn main() -> anyhow::Result<()> {
