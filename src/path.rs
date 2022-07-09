@@ -38,6 +38,7 @@ pub mod overrule {
 
 #[cfg_attr(test, automock)]
 pub trait PathConfiguration {
+    /// Path contained in "XDG_DATA_HOME" or "$HOME/.local/share".
     fn xdg_data_dir(&self, xdg_data_home: Option<PathBuf>) -> PathBuf {
         let data_dir = xdg_data_home
             .or_else(|| {
@@ -50,6 +51,7 @@ pub trait PathConfiguration {
         PathBuf::from(data_dir)
     }
 
+    /// Path contained in "XDG_CONFIG_HOME" or "$HOME/.config".
     fn xdg_config_dir(&self, xdg_config_home: Option<PathBuf>) -> PathBuf {
         xdg_config_home
             .or_else(|| {
@@ -60,6 +62,7 @@ pub trait PathConfiguration {
             .unwrap()
     }
 
+    /// Path to the Steam installation folder.
     fn steam(&self, steam_root_path_override: Option<PathBuf>) -> PathBuf {
         let steam_root_symlink = env::var(HOME)
             .ok()
@@ -70,65 +73,80 @@ pub trait PathConfiguration {
         steam_root_path_override.unwrap_or_else(|| steam_root_symlink)
     }
 
-    fn lutris_local(&self, xdg_data_home: Option<PathBuf>) -> PathBuf {
-        self.xdg_data_dir(xdg_data_home).join("lutris")
+    /// Path to the XDG compliant Lutris data folder.
+    ///
+    /// The `xdg_data_home` variable can be used to access a non XDG compliant Lutris installation.
+    fn lutris_local(&self, xdg_data_home_override: Option<PathBuf>) -> PathBuf {
+        self.xdg_data_dir(xdg_data_home_override).join("lutris")
     }
 
-    fn lutris_config(&self, xdg_config_home: Option<PathBuf>) -> PathBuf {
-        self.xdg_config_dir(xdg_config_home).join("lutris")
+    /// Path to the XDG compliant Lutris config folder.
+    ///
+    /// The `xdg_config_home` variable can be used to access a non XDG compliant Lutris installation.
+    fn lutris_config(&self, xdg_config_home_override: Option<PathBuf>) -> PathBuf {
+        self.xdg_config_dir(xdg_config_home_override).join("lutris")
     }
 
+    /// Path to the Steam config file which contains the default Proton version to use.
     fn steam_config(&self, steam_root_path_override: Option<PathBuf>) -> PathBuf {
         self.steam(steam_root_path_override).join("config/config.vdf")
     }
 
+    /// Path to the Steam compatiblity tools directory.
     fn steam_compatibility_tools_dir(&self, steam_root_path_override: Option<PathBuf>) -> PathBuf {
         self.steam(steam_root_path_override).join("compatibilitytools.d")
     }
 
-    fn lutris_runners_config_dir(&self, xdg_config_home: Option<PathBuf>) -> PathBuf {
-        self.lutris_config(xdg_config_home).join("runners")
+    /// Path to the global default Wine runner config directory.
+    fn lutris_runners_config_dir(&self, xdg_config_home_override: Option<PathBuf>) -> PathBuf {
+        self.lutris_config(xdg_config_home_override).join("runners")
     }
 
-    fn lutris_wine_runner_config(&self, xdg_config_home: Option<PathBuf>) -> PathBuf {
-        self.lutris_runners_config_dir(xdg_config_home).join("wine.yml")
+    /// Path to the global default Wine runner config file.
+    fn lutris_wine_runner_config(&self, xdg_config_home_override: Option<PathBuf>) -> PathBuf {
+        self.lutris_runners_config_dir(xdg_config_home_override)
+            .join("wine.yml")
     }
 
-    fn lutris_runners_dir(&self, xdg_data_home: Option<PathBuf>) -> PathBuf {
-        self.lutris_local(xdg_data_home).join("runners/wine")
+    /// Path to the Lutris runners directory which contains all Wine versions.
+    fn lutris_runners_dir(&self, xdg_data_home_override: Option<PathBuf>) -> PathBuf {
+        self.lutris_local(xdg_data_home_override).join("runners/wine")
     }
 
-    fn ge_man_data_dir(&self, xdg_data_home: Option<PathBuf>) -> PathBuf {
-        self.xdg_data_dir(xdg_data_home).join(APP_NAME)
+    /// Path to the XDG compliant GE-Man data directory.
+    fn ge_man_data_dir(&self, xdg_data_home_override: Option<PathBuf>) -> PathBuf {
+        self.xdg_data_dir(xdg_data_home_override).join(APP_NAME)
     }
 
-    fn ge_man_config_dir(&self, xdg_config_home: Option<PathBuf>) -> PathBuf {
-        self.xdg_config_dir(xdg_config_home).join(APP_NAME)
+    /// Path to the XDG compliant GE-Man config directory.
+    fn ge_man_config_dir(&self, xdg_config_home_override: Option<PathBuf>) -> PathBuf {
+        self.xdg_config_dir(xdg_config_home_override).join(APP_NAME)
     }
 
     fn managed_versions_config(&self, xdg_data_home: Option<PathBuf>) -> PathBuf {
         self.ge_man_data_dir(xdg_data_home).join("managed_versions.json")
     }
 
-    fn ge_man_config(&self, xdg_config_home: Option<PathBuf>) -> PathBuf {
-        self.ge_man_config_dir(xdg_config_home).join("config.yml")
+    fn ge_man_config(&self, xdg_config_home_override: Option<PathBuf>) -> PathBuf {
+        self.ge_man_config_dir(xdg_config_home_override).join("config.yml")
     }
 
-    fn app_config_backup_file(&self, xdg_config_home: Option<PathBuf>, kind: &TagKind) -> PathBuf {
+    /// Returns a path to the backup file of the Steam or Lutris config.
+    fn app_config_backup_file(&self, xdg_config_home_override: Option<PathBuf>, kind: &TagKind) -> PathBuf {
         let config_file = match kind {
             TagKind::Proton => "steam-config-backup.vdf",
             TagKind::Wine { .. } => "lutris-wine-runner-config-backup.yml",
         };
-        self.ge_man_config_dir(xdg_config_home).join(config_file)
+        self.ge_man_config_dir(xdg_config_home_override).join(config_file)
     }
 
     fn create_ge_man_dirs(
         &self,
-        xdg_config_home: Option<PathBuf>,
-        xdg_data_home: Option<PathBuf>,
+        xdg_config_home_override: Option<PathBuf>,
+        xdg_data_home_override: Option<PathBuf>,
     ) -> anyhow::Result<()> {
-        let ge_config_dir = self.ge_man_config_dir(xdg_config_home);
-        let ge_data_dir = self.ge_man_data_dir(xdg_data_home);
+        let ge_config_dir = self.ge_man_config_dir(xdg_config_home_override);
+        let ge_data_dir = self.ge_man_data_dir(xdg_data_home_override);
 
         fs::create_dir_all(&ge_config_dir).context(format!(
             r#"Failed to create directory "ge_man" in {}"#,
@@ -144,13 +162,13 @@ pub trait PathConfiguration {
 
     fn create_app_dirs(
         &self,
-        xdg_config_home: Option<PathBuf>,
-        xdg_data_home: Option<PathBuf>,
-        steam_path: Option<PathBuf>,
+        xdg_config_home_override: Option<PathBuf>,
+        xdg_data_home_override: Option<PathBuf>,
+        steam_root_override: Option<PathBuf>,
     ) -> anyhow::Result<()> {
-        let steam_compat_dir = self.steam_compatibility_tools_dir(steam_path);
-        let lutris_runners_cfg_dir = self.lutris_runners_config_dir(xdg_config_home);
-        let lutris_runners_dir = self.lutris_runners_dir(xdg_data_home);
+        let steam_compat_dir = self.steam_compatibility_tools_dir(steam_root_override);
+        let lutris_runners_cfg_dir = self.lutris_runners_config_dir(xdg_config_home_override);
+        let lutris_runners_dir = self.lutris_runners_dir(xdg_data_home_override);
 
         fs::create_dir_all(&steam_compat_dir).context(format!(
             r#"Failed to create directory "compatibilitytools.d" in {}"#,
