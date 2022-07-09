@@ -4,14 +4,14 @@ use std::io::Write;
 use anyhow::{bail, Context};
 use ge_man_lib::download::GeDownloader;
 
-use ge_man::args::{
-    AddCommandInput, ApplyCommandInput, CheckCommandInput, CopyUserSettingsCommandInput, ForgetCommandInput,
-    GivenVersion, ListCommandInput, MigrationCommandInput, RemoveCommandInput,
-};
 use ge_man::clap::command_names::{
     ADD, APPLY, CHECK, FORGET, LIST, MIGRATE, PROTON_USER_SETTINGS, REMOVE, USER_SETTINGS_COPY,
 };
 use ge_man::command_execution::CommandHandler;
+use ge_man::command_input::{
+    AddCommandInput, ApplyCommandInput, CheckCommandInput, CopyUserSettingsCommandInput, ForgetCommandInput,
+    GivenVersion, ListCommandInput, MigrationCommandInput, RemoveCommandInput,
+};
 use ge_man::data::ManagedVersions;
 use ge_man::filesystem::FsMng;
 use ge_man::path::{overrule, PathConfig, PathConfiguration};
@@ -51,7 +51,8 @@ fn main() -> anyhow::Result<()> {
             let inputs = ListCommandInput::create_from(&matches, managed_versions, &path_config);
 
             for input in inputs {
-                command_handler.list_versions(&mut out_handle, &mut err_handle, input);
+                command_handler.list_versions(&mut out_handle, &mut err_handle, input)?;
+                writeln!(out_handle).unwrap();
             }
             Ok(())
         }

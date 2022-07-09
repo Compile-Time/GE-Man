@@ -1,5 +1,6 @@
 use std::io;
 use std::io::Write;
+use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context};
 use ge_man_lib::archive;
@@ -8,7 +9,7 @@ use ge_man_lib::download::{DownloadRequest, GeDownload};
 use ge_man_lib::error::GithubError;
 use ge_man_lib::tag::TagKind;
 
-use crate::args::{
+use crate::command_input::{
     AddCommandInput, ApplyCommandInput, CheckCommandInput, CopyUserSettingsCommandInput, ForgetCommandInput,
     GivenVersion, ListCommandInput, MigrationCommandInput, RemoveCommandInput,
 };
@@ -49,6 +50,78 @@ impl RemovedAndManagedVersions {
     }
 }
 
+struct ListManagedVersionsInput {
+    pub in_use_directory_name: Option<String>,
+    pub newest: bool,
+    pub tag_kind: TagKind,
+    pub application_name: String,
+    pub managed_versions: ManagedVersions,
+}
+
+impl ListManagedVersionsInput {
+    pub fn new(
+        in_use_directory_name: Option<String>,
+        newest: bool,
+        tag_kind: TagKind,
+        application_name: String,
+        managed_versions: ManagedVersions,
+    ) -> Self {
+        Self {
+            in_use_directory_name,
+            newest,
+            tag_kind,
+            application_name,
+            managed_versions,
+        }
+    }
+}
+
+impl From<ListCommandInput> for ListManagedVersionsInput {
+    fn from(input: ListCommandInput) -> Self {
+        ListManagedVersionsInput::new(
+            input.in_use_directory_name,
+            input.newest,
+            input.tag_kind,
+            input.application_name,
+            input.managed_versions,
+        )
+    }
+}
+
+struct ListAppCompatToolsDirectory {
+    pub kind: TagKind,
+    pub app_name: String,
+    pub app_compat_tool_dir: PathBuf,
+    pub in_use_directory_name: Option<String>,
+}
+
+impl ListAppCompatToolsDirectory {
+    pub fn new(
+        kind: TagKind,
+        app_name: String,
+        app_compat_tool_dir: PathBuf,
+        in_use_directory_name: Option<String>,
+    ) -> Self {
+        Self {
+            kind,
+            app_name,
+            app_compat_tool_dir,
+            in_use_directory_name,
+        }
+    }
+}
+
+impl From<ListCommandInput> for ListAppCompatToolsDirectory {
+    fn from(input: ListCommandInput) -> Self {
+        ListAppCompatToolsDirectory::new(
+            input.tag_kind,
+            input.application_name,
+            input.app_compat_tool_dir,
+            input.in_use_directory_name,
+        )
+    }
+}
+
 /// Handles user interaction and user feedback. This struct basically ties everything together to provide the
 /// functionality of each terminal command.
 pub struct CommandHandler<'a> {
@@ -61,29 +134,49 @@ impl<'a> CommandHandler<'a> {
         CommandHandler { ge_downloader, fs_mng }
     }
 
-    fn list_line(&self, version: &ManagedVersion, compat_tool_dir_name: Option<&String>, app_name: &str) -> String {
-        if let Some(dir) = compat_tool_dir_name {
-            if dir.eq(version.directory_name()) {
-                return format!("{} - In use by {}", version.tag(), app_name);
-            }
-        }
+    fn list_managed_versions_line(
+        &self,
+        version: &ManagedVersion,
+        compat_tool_dir_name: Option<&String>,
+        app_name: &str,
+    ) -> String {
+        let compat_tool_dir_name = match compat_tool_dir_name {
+            Some(dir) => dir,
+            None => return version.tag().value().clone(),
+        };
 
-        version.tag().value().clone()
+        if compat_tool_dir_name.eq(version.directory_name()) {
+            format!("{} - In use by {}", version.tag(), app_name)
+        } else {
+            version.tag().value().clone()
+        }
     }
 
     pub fn list_versions(
         &self,
         stdout: &mut impl Write,
         stderr: &mut impl Write,
-        list_command_input: ListCommandInput,
-    ) {
-        let ListCommandInput {
-            tag_kind,
-            newest,
+        input: ListCommandInput,
+    ) -> anyhow::Result<()> {
+        let list_fs = input.file_system;
+
+        if list_fs {
+            self.list_app_compat_tool_directory(stdout, ListAppCompatToolsDirectory::from(input))?;
+        } else {
+            self.list_managed_versions(stdout, stderr, ListManagedVersionsInput::from(input));
+        }
+
+        Ok(())
+    }
+
+    fn list_managed_versions(&self, stdout: &mut impl Write, stderr: &mut impl Write, input: ListManagedVersionsInput) {
+        let ListManagedVersionsInput {
             in_use_directory_name,
-            managed_versions,
+            newest,
+            tag_kind,
             application_name,
-        } = list_command_input;
+            managed_versions,
+        } = input;
 
         if in_use_directory_name.is_none() {
             writeln!(
@@ -105,13 +198,41 @@ impl<'a> CommandHandler<'a> {
 
             managed_versions.sort_unstable_by(|a, b| a.tag().cmp_semver(b.tag()).reverse());
             for version in &managed_versions {
-                let line = self.list_line(version, in_use_directory_name.as_ref(), &application_name);
+                let line = self.list_managed_versions_line(version, in_use_directory_name.as_ref(), &application_name);
                 writeln!(stdout, "* {}", line).unwrap();
             }
-            writeln!(stdout).unwrap();
         } else {
             writeln!(stdout, "No versions installed").unwrap();
         }
+    }
+
+    fn list_app_compat_tool_directory(
+        &self,
+        stdout: &mut impl Write,
+        input: ListAppCompatToolsDirectory,
+    ) -> anyhow::Result<()> {
+        let ListAppCompatToolsDirectory {
+            app_compat_tool_dir,
+            kind,
+            in_use_directory_name,
+            app_name,
+        } = input;
+
+        writeln!(stdout, "{}:", kind.compatibility_tool_name()).unwrap();
+        let mut paths = self.fs_mng.paths_for_directory_items(&app_compat_tool_dir)?;
+        paths.sort_unstable_by(|a, b| a.file_name().cmp(&b.file_name()).reverse());
+        for path in paths {
+            let file_name = path.file_name().map(|os_str| os_str.to_string_lossy()).unwrap();
+            match &in_use_directory_name {
+                Some(in_use_dir) if in_use_dir.eq(&file_name) => {
+                    writeln!(stdout, "{} - In use by {}", path.display(), app_name).unwrap()
+                }
+                Some(_) => writeln!(stdout, "{}", path.display()).unwrap(),
+                None => writeln!(stdout, "{}", path.display()).unwrap(),
+            }
+        }
+
+        Ok(())
     }
 
     pub fn add(&self, stdout: &mut impl Write, input: AddCommandInput) -> anyhow::Result<NewAndManagedVersions> {
@@ -471,9 +592,17 @@ mod tests {
             ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
             ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
         ]);
-        let input = ListCommandInput::new(TagKind::Proton, true, None, managed_versions, String::from("Steam"));
+        let input = ListCommandInput::new(
+            TagKind::Proton,
+            true,
+            None,
+            managed_versions,
+            String::from("Steam"),
+            false,
+            PathBuf::default(),
+        );
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
-        command_handler.list_versions(&mut stdout, &mut stderr, input);
+        command_handler.list_versions(&mut stdout, &mut stderr, input).unwrap();
 
         stdout.assert_count(3);
         stdout.assert_line(0, "Proton GE:");
@@ -499,9 +628,11 @@ mod tests {
             Some(String::from("GE-Proton7-22")),
             managed_versions.clone(),
             String::from("Steam"),
+            false,
+            PathBuf::default(),
         );
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
-        command_handler.list_versions(&mut stdout, &mut stderr, input);
+        command_handler.list_versions(&mut stdout, &mut stderr, input).unwrap();
 
         stdout.assert_count(3);
         stdout.assert_line(0, "Proton GE:");
@@ -521,9 +652,17 @@ mod tests {
             ManagedVersion::new("6.21-GE-1", TagKind::Proton, "6.21-GE-1"),
             ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6.20-GE-1"),
         ]);
-        let input = ListCommandInput::new(TagKind::Proton, false, None, managed_versions, String::from("Steam"));
+        let input = ListCommandInput::new(
+            TagKind::Proton,
+            false,
+            None,
+            managed_versions,
+            String::from("Steam"),
+            false,
+            PathBuf::default(),
+        );
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
-        command_handler.list_versions(&mut stdout, &mut stderr, input);
+        command_handler.list_versions(&mut stdout, &mut stderr, input).unwrap();
 
         stdout.assert_count(5);
         stdout.assert_line(0, "Proton GE:");
@@ -551,9 +690,11 @@ mod tests {
             Some(String::from("GE-Proton7-22")),
             managed_versions,
             String::from("Steam"),
+            false,
+            PathBuf::default(),
         );
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
-        command_handler.list_versions(&mut stdout, &mut stderr, input);
+        command_handler.list_versions(&mut stdout, &mut stderr, input).unwrap();
 
         stdout.assert_count(5);
         stdout.assert_line(0, "Proton GE:");

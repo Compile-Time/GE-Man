@@ -23,6 +23,7 @@ pub mod arg_names {
     pub const APPLY_ARG: &str = "apply";
     pub const SOURCE_ARG: &str = "source";
     pub const DESTINATION_ARG: &str = "destination";
+    pub const FILE_SYSTEM: &str = "file-system";
 }
 
 pub mod arg_group_names {
@@ -59,6 +60,7 @@ mod help_text {
     pub const LIST_WINE_TAG: &str = "List Wine GE versions";
     pub const LIST_WINE_LOL_TAG: &str = "List Wine GE LoL versions";
     pub const LIST_NEWEST: &str = "List the latest versions for each tag kind.";
+    pub const LIST_FILE_SYSTEM: &str = "List content of Steam compatibility tools or Lutris runners folder";
     // Remove
     pub const REMOVE_PROTON_TAG: &str = "Remove a GE Proton version";
     pub const REMOVE_WINE_TAG: &str = "Remove a Wine GE version";
@@ -157,6 +159,14 @@ fn tag_arg_group(required: bool) -> ArgGroup<'static> {
         .required(required)
 }
 
+fn file_system_arg(help_text: &'static str) -> Arg {
+    Arg::new(arg_names::FILE_SYSTEM)
+        .short('f')
+        .long(arg_names::FILE_SYSTEM)
+        .display_order(2)
+        .help(help_text)
+}
+
 fn setup_list_cmd() -> Command<'static> {
     Command::new(command_names::LIST)
         .about(about_text::LIST)
@@ -166,6 +176,7 @@ fn setup_list_cmd() -> Command<'static> {
             wine_arg(help_text::LIST_WINE_TAG, 0).takes_value(false),
             lol_arg(help_text::LIST_WINE_LOL_TAG, 0).takes_value(false),
             newest_arg(help_text::LIST_NEWEST),
+            file_system_arg(help_text::LIST_FILE_SYSTEM),
         ])
 }
 

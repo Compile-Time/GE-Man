@@ -1,6 +1,6 @@
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 use anyhow::{anyhow, bail, Context};
@@ -35,6 +35,7 @@ pub fn in_use_compat_tool_dir_name(config_file_path: &Path, kind: &TagKind) -> a
 pub trait FilesystemManager {
     fn setup_version(&self, version: Version, compressed_tar: Box<dyn Read>) -> anyhow::Result<ManagedVersion>;
     fn remove_version(&self, version: &ManagedVersion) -> anyhow::Result<()>;
+    fn paths_for_directory_items(&self, path: &Path) -> io::Result<Vec<PathBuf>>;
     fn migrate_folder(&self, version: Version, source_path: &Path) -> anyhow::Result<ManagedVersion>;
     fn apply_to_app_config(&self, version: &ManagedVersion) -> anyhow::Result<()>;
     fn copy_user_settings(&self, src_version: &ManagedVersion, dst_version: &ManagedVersion) -> anyhow::Result<()>;
@@ -122,6 +123,13 @@ impl<'a> FilesystemManager for FsMng<'a> {
         let path = path.join(version.directory_name());
 
         fs::remove_dir_all(&path).context(format!("Could not remove directory '{}'", path.display()))
+    }
+
+    fn paths_for_directory_items(&self, path: &Path) -> io::Result<Vec<PathBuf>> {
+        fs::read_dir(path)?
+            .into_iter()
+            .map(|result| result.map(|dir_entry| dir_entry.path()))
+            .collect::<io::Result<Vec<PathBuf>>>()
     }
 
     fn migrate_folder(&self, version: Version, source_path: &Path) -> anyhow::Result<ManagedVersion> {

@@ -6,9 +6,9 @@ use ge_man_lib::tag::{Tag, TagKind, WineTagKind};
 
 use crate::clap::{arg_group_names, arg_names, command_names};
 use crate::data::{ManagedVersion, ManagedVersions};
+use crate::filesystem;
 use crate::path::PathConfiguration;
 use crate::version::{Version, Versioned};
-use crate::{args, filesystem};
 
 fn application_name(kind: &TagKind) -> String {
     match kind {
@@ -73,6 +73,8 @@ pub struct ListCommandInput {
     pub in_use_directory_name: Option<String>,
     pub managed_versions: ManagedVersions,
     pub application_name: String,
+    pub file_system: bool,
+    pub app_compat_tool_dir: PathBuf,
 }
 
 impl ListCommandInput {
@@ -82,6 +84,8 @@ impl ListCommandInput {
         in_use_directory_name: Option<String>,
         managed_versions: ManagedVersions,
         application_name: String,
+        file_system: bool,
+        app_compat_tool_dir: PathBuf,
     ) -> Self {
         Self {
             tag_kind,
@@ -89,6 +93,8 @@ impl ListCommandInput {
             in_use_directory_name,
             managed_versions,
             application_name,
+            file_system,
+            app_compat_tool_dir,
         }
     }
 
@@ -99,6 +105,7 @@ impl ListCommandInput {
     ) -> Vec<ListCommandInput> {
         let matches = arg_matches.subcommand_matches(command_names::LIST).unwrap();
         let tag_kind = TagArg::try_from(matches).ok().map(|tag| tag.kind);
+        let file_system = matches.is_present(arg_names::FILE_SYSTEM);
 
         vec![
             TagKind::Proton,
@@ -109,17 +116,24 @@ impl ListCommandInput {
         .into_iter()
         .filter(|kind| Some(kind).eq(&tag_kind.as_ref()) || tag_kind.is_none())
         .map(|kind| {
-            let app_config_file = path_cfg.application_config_file(&kind);
-
             let newest = matches.is_present(arg_names::NEWEST_ARG);
+            let app_config_file = path_cfg.application_config_file(&kind);
             let in_use_directory_name = filesystem::in_use_compat_tool_dir_name(&app_config_file, &kind).ok();
 
             let mut managed_versions = managed_versions.clone();
             managed_versions.vec_mut().retain(|version| version.kind().eq(&kind));
-
             let app_name = application_name(&kind);
+            let app_compat_tool_dir = path_cfg.application_compatibility_tools_dir(&kind);
 
-            ListCommandInput::new(kind, newest, in_use_directory_name, managed_versions, app_name)
+            ListCommandInput::new(
+                kind,
+                newest,
+                in_use_directory_name,
+                managed_versions,
+                app_name,
+                file_system,
+                app_compat_tool_dir,
+            )
         })
         .collect()
     }
@@ -223,7 +237,7 @@ impl RemoveCommandInput {
     }
 
     pub fn tag_kind_from_matches(matches: &ArgMatches) -> TagKind {
-        let matches = matches.subcommand_matches(args::command_names::REMOVE).unwrap();
+        let matches = matches.subcommand_matches(command_names::REMOVE).unwrap();
         TagArg::try_from(matches).unwrap().kind
     }
 }
@@ -756,6 +770,10 @@ mod tests {
             .expect_application_config_file()
             .once()
             .returning(|_| PathBuf::from("test_resources/assets/wine.yml"));
+        path_cfg
+            .expect_application_compatibility_tools_dir()
+            .once()
+            .returning(|_| PathBuf::from("/tmp/test"));
 
         let inputs = ListCommandInput::create_from(&matches, managed_versions.clone(), &path_cfg);
         assert_eq!(inputs.len(), 1);
