@@ -1,6 +1,5 @@
 use crate::data::ManagedVersion;
 use ge_man_lib::config::{LutrisConfig, SteamConfig};
-use ge_man_lib::error::{LutrisConfigError, SteamConfigError};
 use ge_man_lib::tag::TagKind;
 use std::path::Path;
 
@@ -82,22 +81,6 @@ impl AppConfig for LutrisConfig {
         self.wine_version()
     }
 
-    fn kind(&self) -> String {
-        String::from("Lutris")
-    }
-}
-
-pub trait AppConfigError {
-    fn kind(&self) -> String;
-}
-
-impl AppConfigError for SteamConfigError {
-    fn kind(&self) -> String {
-        String::from("Steam")
-    }
-}
-
-impl AppConfigError for LutrisConfigError {
     fn kind(&self) -> String {
         String::from("Lutris")
     }
