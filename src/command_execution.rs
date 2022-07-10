@@ -332,7 +332,7 @@ impl<'a> CommandHandler<'a> {
         if app_config.check_if_version_is_in_use(&version_to_remove) {
             bail!(
                 "{} version is in use. Select a different version to make removal possible",
-                version_to_remove.kind()
+                version_to_remove.kind().compatibility_tool_name()
             );
         }
 
@@ -940,7 +940,7 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(
             err.to_string(),
-            "PROTON version is in use. Select a different version to make removal possible"
+            "Proton GE version is in use. Select a different version to make removal possible"
         );
     }
 
