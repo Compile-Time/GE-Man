@@ -780,12 +780,7 @@ mod tests {
 
         let input = &inputs[0];
         assert_eq!(input.managed_versions, managed_versions);
-        assert_eq!(
-            input.tag_kind,
-            TagKind::Wine {
-                kind: WineTagKind::WineGe
-            }
-        );
+        assert_eq!(input.tag_kind, TagKind::wine());
         assert_eq!(input.newest, false);
         assert_eq!(input.application_name, "Lutris");
         assert_eq!(
@@ -795,5 +790,31 @@ mod tests {
     }
 
     #[test]
-    fn list_create_steam_input() {}
+    fn list_create_steam_input() {
+        let args = vec!["geman", "list", "-p"];
+        let matches = setup_clap().try_get_matches_from(args).unwrap();
+        let mut path_cfg = MockPathConfiguration::new();
+
+        let managed_versions =
+            ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-1", TagKind::Proton, "6.21-GE-1")]);
+
+        path_cfg
+            .expect_application_config_file()
+            .once()
+            .returning(|_| PathBuf::from("test_resources/assets/config.vdf"));
+        path_cfg
+            .expect_application_compatibility_tools_dir()
+            .once()
+            .returning(|_| PathBuf::from("/tmp/test"));
+
+        let inputs = ListCommandInput::create_from(&matches, managed_versions.clone(), &path_cfg);
+        assert_eq!(inputs.len(), 1);
+
+        let input = &inputs[0];
+        assert_eq!(input.managed_versions, managed_versions);
+        assert_eq!(input.tag_kind, TagKind::Proton);
+        assert_eq!(input.newest, false);
+        assert_eq!(input.application_name, "Steam");
+        assert_eq!(input.in_use_directory_name, Some(String::from("Proton-6.21-GE-2")));
+    }
 }
