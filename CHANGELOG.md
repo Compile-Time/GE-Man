@@ -11,11 +11,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 * Add the ability to set the Steam installation path via a config file in `$XDG_CONFIG_HOME/ge_man/config.json`. <br>
   Alternatively, the Steam path can also be set with the `GE_MAN_STEAM_PATH` variable.
+* List command:
+  * Added the `--file-system` (`-f`) flag
+    When this flag is set the content of the Steam compatibilitytools.d or Lutris runners folder is listed. This is
+    helpful for migrating folders or just checking in general what else is present in those directories. Bear in
+    mind that this flag will display non GE-Man managed versions!
 
 ### Changed
 
-* Changed "Downloading archive" to "Downloading <file name>".
-* Refactored code for handling GE-Man commands.
+* Show the file name of the to-be-downloaded archive during download.
+
+* Technical:
+  * Renamed `TerminalWriter` to `CommandHandler` to better represent its purpose
+  * Renamed to `ui` module to `command_execution`
+  * Renamed the `args` module to `command_input`
+  * Refactored the interaction with the `CommandHandler` to be more input/output focused
 
 ## [0.1.2] - 2022-06-17
 
