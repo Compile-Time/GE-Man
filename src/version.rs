@@ -40,6 +40,12 @@ impl<'a> fmt::Debug for dyn Versioned + 'a {
     }
 }
 
+impl PartialEq<Version> for dyn Versioned {
+    fn eq(&self, other: &Version) -> bool {
+        self.tag().eq(other.tag()) && self.kind().eq(other.kind())
+    }
+}
+
 #[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Version {
     tag: Tag,

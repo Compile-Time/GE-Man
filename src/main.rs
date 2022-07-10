@@ -70,7 +70,7 @@ fn main() -> anyhow::Result<()> {
             if AddCommandInput::apply_present(&matches) {
                 let apply_input = ApplyCommandInput::new(
                     GivenVersion::Explicit {
-                        version: Box::new(new_and_managed_versions.version),
+                        version: Box::new(new_and_managed_versions.new_versions[0].clone()),
                     },
                     new_and_managed_versions.managed_versions,
                 );
@@ -93,7 +93,7 @@ fn main() -> anyhow::Result<()> {
             writeln!(
                 out_handle,
                 "Successfully removed version {}.",
-                removed_and_managed_versions.version
+                removed_and_managed_versions.removed_versions[0]
             )
             .unwrap();
             Ok(())
@@ -115,7 +115,7 @@ fn main() -> anyhow::Result<()> {
             writeln!(
                 out_handle,
                 "Successfully migrated directory as {}",
-                new_and_managed_versions.version
+                new_and_managed_versions.new_versions[0]
             )
             .unwrap();
             Ok(())
@@ -152,7 +152,7 @@ fn main() -> anyhow::Result<()> {
             writeln!(
                 out_handle,
                 "{} is now not managed by GE Helper",
-                removed_and_managed_versions.version
+                removed_and_managed_versions.removed_versions[0]
             )
             .unwrap();
             Ok(())

@@ -378,6 +378,27 @@ impl ForgetCommandInput {
     }
 }
 
+pub struct CleanCommandInput {
+    pub remove_after_version: Box<dyn Versioned>,
+    pub managed_versions: ManagedVersions,
+}
+
+impl CleanCommandInput {
+    pub fn new(remove_after_version: Box<dyn Versioned>, managed_versions: ManagedVersions) -> Self {
+        Self {
+            remove_after_version,
+            managed_versions,
+        }
+    }
+
+    pub fn create_from(matches: &ArgMatches, managed_versions: ManagedVersions) -> Self {
+        let matches = matches.subcommand_matches(command_names::CLEAN).unwrap();
+        let tag_arg = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
+
+        CleanCommandInput::new(Box::new(tag_arg.version()), managed_versions)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use clap::ErrorKind;
@@ -759,8 +780,8 @@ mod tests {
 
     #[test]
     fn list_create_lutris_input() {
-        let args = vec!["geman", "list", "-w"];
-        let matches = setup_clap().try_get_matches_from(args).unwrap();
+        let command = vec!["geman", "list", "-w"];
+        let matches = setup_clap().try_get_matches_from(command).unwrap();
         let mut path_cfg = MockPathConfiguration::new();
 
         let managed_versions =
@@ -791,8 +812,8 @@ mod tests {
 
     #[test]
     fn list_create_steam_input() {
-        let args = vec!["geman", "list", "-p"];
-        let matches = setup_clap().try_get_matches_from(args).unwrap();
+        let command = vec!["geman", "list", "-p"];
+        let matches = setup_clap().try_get_matches_from(command).unwrap();
         let mut path_cfg = MockPathConfiguration::new();
 
         let managed_versions =
@@ -816,5 +837,23 @@ mod tests {
         assert_eq!(input.newest, false);
         assert_eq!(input.application_name, "Steam");
         assert_eq!(input.in_use_directory_name, Some(String::from("Proton-6.21-GE-2")));
+    }
+
+    #[test]
+    fn clean_input_should_resolve_version_to_remove_after() {
+        let command = vec!["geman", "clean", "-p", "6.21-GE-2"];
+        let matches = setup_clap().try_get_matches_from(command).unwrap();
+        let managed_versions = ManagedVersions::new(vec![
+            ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
+        ]);
+
+        let input = CleanCommandInput::create_from(&matches, managed_versions.clone());
+        assert_eq!(
+            input.remove_after_version.as_ref(),
+            Box::new(Version::new("6.21-GE-2", TagKind::Proton)).as_ref()
+        );
+        assert_eq!(input.managed_versions, managed_versions);
     }
 }

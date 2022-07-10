@@ -12,6 +12,7 @@ pub mod command_names {
     pub const PROTON_USER_SETTINGS: &str = "user-settings";
     pub const USER_SETTINGS_COPY: &str = "copy";
     pub const FORGET: &str = "forget";
+    pub const CLEAN: &str = "clean";
 }
 
 pub mod arg_names {
@@ -46,6 +47,7 @@ pub mod about_text {
         r#"Commands for managing user setting files for Proton versions. "user-settings" is aliased to "us""#;
     pub const USER_SETTINGS_COPY: &str = "Copy a user_settings.py from one Proton version to another.";
     pub const FORGET: &str = "Forget a GE Proton or Wine GE version. This operation does not remove any files.";
+    pub const CLEAN: &str = "Remove multiple GE Proton or Wine GE versions.";
 }
 
 mod help_text {
@@ -85,6 +87,10 @@ mod help_text {
     pub const FORGET_PROTON_TAG: &str = "Forget a GE Proton version";
     pub const FORGET_WINE_TAG: &str = "Forget a Wine GE version";
     pub const FORGET_WINE_LOL_TAG: &str = "Forget a Wine GE LoL version";
+    // Clean
+    pub const CLEAN_PROTON_TAG: &str = "Clean a GE Proton version";
+    pub const CLEAN_WINE_TAG: &str = "Clean a Wine GE version";
+    pub const CLEAN_WINE_LOL_TAG: &str = "Clean a Wine GE LoL version";
 }
 
 pub mod value_name {
@@ -299,6 +305,17 @@ fn setup_forget_cmd() -> Command<'static> {
         .group(tag_arg_group(true))
 }
 
+fn setup_clean_cmd() -> Command<'static> {
+    Command::new(command_names::CLEAN)
+        .about(about_text::CLEAN)
+        .version(crate_version!())
+        .args(&[
+            proton_arg(help_text::CLEAN_PROTON_TAG, 1),
+            wine_arg(help_text::CLEAN_WINE_TAG, 1),
+            lol_arg(help_text::CLEAN_WINE_LOL_TAG, 1),
+        ])
+}
+
 pub fn setup_clap() -> Command<'static> {
     command!()
         .subcommand_required(true)
@@ -310,4 +327,5 @@ pub fn setup_clap() -> Command<'static> {
         .subcommand(setup_apply_cmd())
         .subcommand(setup_user_settings_cmd())
         .subcommand(setup_forget_cmd())
+        .subcommand(setup_clean_cmd())
 }

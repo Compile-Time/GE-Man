@@ -1,7 +1,10 @@
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::fs;
+use std::ops::{Deref, DerefMut};
 use std::path::Path;
+use std::slice::Iter;
+use std::vec::IntoIter;
 
 use anyhow::{bail, Context};
 use ge_man_lib::tag::{Tag, TagKind};
@@ -83,6 +86,16 @@ impl Versioned for ManagedVersion {
     }
 }
 
+impl<'a> Versioned for &'a ManagedVersion {
+    fn tag(&self) -> &Tag {
+        &self.tag
+    }
+
+    fn kind(&self) -> &TagKind {
+        &self.kind
+    }
+}
+
 impl PartialEq for ManagedVersion {
     fn eq(&self, other: &Self) -> bool {
         self.tag().eq(other.tag()) && self.kind().eq(other.kind())
@@ -95,6 +108,12 @@ impl<'a> PartialEq<dyn Versioned + 'a> for ManagedVersion {
     }
 }
 
+impl PartialEq<Box<dyn Versioned>> for ManagedVersion {
+    fn eq(&self, other: &Box<dyn Versioned>) -> bool {
+        self.tag.eq(other.tag()) && self.kind().eq(other.kind())
+    }
+}
+
 impl PartialOrd for ManagedVersion {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
@@ -104,6 +123,12 @@ impl PartialOrd for ManagedVersion {
 impl<'a> PartialOrd<dyn Versioned + 'a> for ManagedVersion {
     fn partial_cmp(&self, other: &(dyn Versioned + 'a)) -> Option<Ordering> {
         Some(self.tag().cmp(other.tag()).then(self.kind().cmp(other.kind())))
+    }
+}
+
+impl PartialOrd<Box<dyn Versioned>> for ManagedVersion {
+    fn partial_cmp(&self, other: &Box<dyn Versioned>) -> Option<Ordering> {
+        Some(self.tag.cmp(other.tag()).then(self.kind.cmp(other.kind())))
     }
 }
 
@@ -166,10 +191,9 @@ impl ManagedVersions {
             .cloned()
     }
 
-    pub fn add(&mut self, version: ManagedVersion) -> anyhow::Result<ManagedVersion> {
+    pub fn add(&mut self, version: ManagedVersion) -> ManagedVersion {
         self.versions.push(version.clone());
-
-        Ok(version)
+        version
     }
 
     pub fn remove(&mut self, version: &dyn Versioned) -> Option<ManagedVersion> {
@@ -213,6 +237,38 @@ impl Clone for ManagedVersions {
 impl Default for ManagedVersions {
     fn default() -> Self {
         ManagedVersions::new(Vec::new())
+    }
+}
+
+impl IntoIterator for ManagedVersions {
+    type Item = ManagedVersion;
+    type IntoIter = IntoIter<ManagedVersion>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.versions.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a ManagedVersions {
+    type Item = &'a ManagedVersion;
+    type IntoIter = Iter<'a, ManagedVersion>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.versions.iter()
+    }
+}
+
+impl Deref for ManagedVersions {
+    type Target = Vec<ManagedVersion>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.versions
+    }
+}
+
+impl DerefMut for ManagedVersions {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.versions
     }
 }
 
@@ -328,7 +384,7 @@ mod managed_versions_tests {
     fn add() {
         let mut managed_versions = ManagedVersions::default();
         let version = ManagedVersion::from(Version::proton("6.20-GE-1"));
-        managed_versions.add(version).unwrap();
+        managed_versions.add(version);
         assert!(managed_versions.find_version(&Version::proton("6.20-GE-1")).is_some());
     }
 
