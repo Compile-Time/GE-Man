@@ -134,24 +134,6 @@ impl<'a> CommandHandler<'a> {
         CommandHandler { ge_downloader, fs_mng }
     }
 
-    fn list_managed_versions_line(
-        &self,
-        version: &ManagedVersion,
-        compat_tool_dir_name: Option<&String>,
-        app_name: &str,
-    ) -> String {
-        let compat_tool_dir_name = match compat_tool_dir_name {
-            Some(dir) => dir,
-            None => return version.tag().value().clone(),
-        };
-
-        if compat_tool_dir_name.eq(version.directory_name()) {
-            format!("{} - In use by {}", version.tag(), app_name)
-        } else {
-            version.tag().value().clone()
-        }
-    }
-
     pub fn list_versions(
         &self,
         stdout: &mut impl Write,
@@ -198,7 +180,13 @@ impl<'a> CommandHandler<'a> {
 
             managed_versions.sort_unstable_by(|a, b| a.tag().cmp_semver(b.tag()).reverse());
             for version in &managed_versions {
-                let line = self.list_managed_versions_line(version, in_use_directory_name.as_ref(), &application_name);
+                let line = match &in_use_directory_name {
+                    Some(dir) if dir.eq(version.directory_name()) => {
+                        format!("{} - In use by {}", version.tag(), application_name)
+                    }
+                    Some(_) => version.tag().value().clone(),
+                    None => version.tag().value().clone(),
+                };
                 writeln!(stdout, "* {}", line).unwrap();
             }
         } else {
@@ -223,13 +211,14 @@ impl<'a> CommandHandler<'a> {
         paths.sort_unstable_by(|a, b| a.file_name().cmp(&b.file_name()).reverse());
         for path in paths {
             let file_name = path.file_name().map(|os_str| os_str.to_string_lossy()).unwrap();
-            match &in_use_directory_name {
+            let line = match &in_use_directory_name {
                 Some(in_use_dir) if in_use_dir.eq(&file_name) => {
-                    writeln!(stdout, "{} - In use by {}", path.display(), app_name).unwrap()
+                    format!("{} - In use by {}", path.display(), app_name)
                 }
-                Some(_) => writeln!(stdout, "{}", path.display()).unwrap(),
-                None => writeln!(stdout, "{}", path.display()).unwrap(),
-            }
+                Some(_) => path.display().to_string(),
+                None => path.display().to_string(),
+            };
+            writeln!(stdout, "* {}", line).unwrap();
         }
 
         Ok(())
@@ -604,10 +593,9 @@ mod tests {
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
         command_handler.list_versions(&mut stdout, &mut stderr, input).unwrap();
 
-        stdout.assert_count(3);
+        stdout.assert_count(2);
         stdout.assert_line(0, "Proton GE:");
         stdout.assert_line(1, "* GE-Proton7-22");
-        stdout.assert_line(2, "");
     }
 
     #[test]
@@ -634,10 +622,9 @@ mod tests {
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
         command_handler.list_versions(&mut stdout, &mut stderr, input).unwrap();
 
-        stdout.assert_count(3);
+        stdout.assert_count(2);
         stdout.assert_line(0, "Proton GE:");
         stdout.assert_line(1, "* GE-Proton7-22 - In use by Steam");
-        stdout.assert_line(2, "");
     }
 
     #[test]
@@ -664,12 +651,11 @@ mod tests {
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
         command_handler.list_versions(&mut stdout, &mut stderr, input).unwrap();
 
-        stdout.assert_count(5);
+        stdout.assert_count(4);
         stdout.assert_line(0, "Proton GE:");
         stdout.assert_line(1, "* GE-Proton7-22");
         stdout.assert_line(2, "* 6.21-GE-1");
         stdout.assert_line(3, "* 6.20-GE-1");
-        stdout.assert_line(4, "");
     }
 
     #[test]
@@ -696,12 +682,79 @@ mod tests {
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
         command_handler.list_versions(&mut stdout, &mut stderr, input).unwrap();
 
-        stdout.assert_count(5);
+        stdout.assert_count(4);
         stdout.assert_line(0, "Proton GE:");
         stdout.assert_line(1, "* GE-Proton7-22 - In use by Steam");
         stdout.assert_line(2, "* 6.21-GE-1");
         stdout.assert_line(3, "* 6.20-GE-1");
-        stdout.assert_line(4, "");
+    }
+
+    #[test]
+    fn list_versions_from_file_system() {
+        let mut fs_mng = MockFilesystemManager::new();
+        fs_mng.expect_paths_for_directory_items().once().returning(|_| {
+            Ok(vec![
+                PathBuf::from("/tmp/test/Proton-6.20-GE-1"),
+                PathBuf::from("/tmp/test/Proton-6.21-GE-1"),
+                PathBuf::from("/tmp/test/Proton-6.21-GE-2"),
+            ])
+        });
+
+        let ge_downloader = MockDownloader::new();
+
+        let mut stdout = AssertLines::new();
+        let mut stderr = AssertLines::new();
+        let input = ListCommandInput::new(
+            TagKind::Proton,
+            false,
+            Some(String::from("GE-Proton7-22")),
+            ManagedVersions::default(),
+            String::from("Steam"),
+            true,
+            PathBuf::from("/tmp/test"),
+        );
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
+        command_handler.list_versions(&mut stdout, &mut stderr, input).unwrap();
+
+        stdout.assert_count(4);
+        stdout.assert_line(0, "Proton GE:");
+        stdout.assert_line(1, "* /tmp/test/Proton-6.21-GE-2");
+        stdout.assert_line(2, "* /tmp/test/Proton-6.21-GE-1");
+        stdout.assert_line(3, "* /tmp/test/Proton-6.20-GE-1");
+    }
+
+    #[test]
+    fn list_versions_from_file_system_with_in_use_hint() {
+        let mut fs_mng = MockFilesystemManager::new();
+        fs_mng.expect_paths_for_directory_items().once().returning(|_| {
+            Ok(vec![
+                PathBuf::from("/tmp/test/Proton-6.20-GE-1"),
+                PathBuf::from("/tmp/test/Proton-6.21-GE-1"),
+                PathBuf::from("/tmp/test/Proton-6.21-GE-2"),
+            ])
+        });
+
+        let ge_downloader = MockDownloader::new();
+
+        let mut stdout = AssertLines::new();
+        let mut stderr = AssertLines::new();
+        let input = ListCommandInput::new(
+            TagKind::Proton,
+            false,
+            Some(String::from("Proton-6.21-GE-1")),
+            ManagedVersions::default(),
+            String::from("Steam"),
+            true,
+            PathBuf::from("/tmp/test"),
+        );
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
+        command_handler.list_versions(&mut stdout, &mut stderr, input).unwrap();
+
+        stdout.assert_count(4);
+        stdout.assert_line(0, "Proton GE:");
+        stdout.assert_line(1, "* /tmp/test/Proton-6.21-GE-2");
+        stdout.assert_line(2, "* /tmp/test/Proton-6.21-GE-1 - In use by Steam");
+        stdout.assert_line(3, "* /tmp/test/Proton-6.20-GE-1");
     }
 
     #[test]
