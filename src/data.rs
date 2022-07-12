@@ -96,9 +96,9 @@ impl<'a> Versioned for &'a ManagedVersion {
     }
 }
 
-impl PartialEq for ManagedVersion {
-    fn eq(&self, other: &Self) -> bool {
-        self.tag().eq(other.tag()) && self.kind().eq(other.kind())
+impl<T: Versioned> PartialEq<T> for ManagedVersion {
+    fn eq(&self, other: &T) -> bool {
+        self.tag.eq(other.tag()) && self.kind.eq(other.kind())
     }
 }
 
@@ -114,9 +114,9 @@ impl PartialEq<Box<dyn Versioned>> for ManagedVersion {
     }
 }
 
-impl PartialOrd for ManagedVersion {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+impl<T: Versioned> PartialOrd<T> for ManagedVersion {
+    fn partial_cmp(&self, other: &T) -> Option<Ordering> {
+        Some(self.tag.cmp(other.tag()).then(self.kind.cmp(other.kind())))
     }
 }
 

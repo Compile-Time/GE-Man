@@ -378,24 +378,52 @@ impl ForgetCommandInput {
     }
 }
 
-pub struct CleanCommandInput {
-    pub remove_after_version: Box<dyn Versioned>,
+pub struct CleanCommandInput<S, E>
+where
+    S: Versioned,
+    E: Versioned,
+{
+    pub remove_before_version: Option<S>,
+    pub start_version: Option<S>,
+    pub end_version: Option<E>,
     pub managed_versions: ManagedVersions,
 }
 
-impl CleanCommandInput {
-    pub fn new(remove_after_version: Box<dyn Versioned>, managed_versions: ManagedVersions) -> Self {
+impl<S, E> CleanCommandInput<S, E>
+where
+    S: Versioned,
+    E: Versioned,
+{
+    pub fn new(
+        remove_before_version: Option<S>,
+        start_version: Option<S>,
+        end_version: Option<E>,
+        managed_versions: ManagedVersions,
+    ) -> Self {
         Self {
-            remove_after_version,
+            remove_before_version,
+            start_version,
+            end_version,
             managed_versions,
         }
     }
+}
 
+impl CleanCommandInput<Version, Version> {
     pub fn create_from(matches: &ArgMatches, managed_versions: ManagedVersions) -> Self {
         let matches = matches.subcommand_matches(command_names::CLEAN).unwrap();
-        let tag_arg = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
+        let tag_kind = TagArg::try_from(matches)
+            .expect("Could not create tag information from provided argument")
+            .kind;
+        let start = matches
+            .value_of(arg_names::START)
+            .map(|tag| Version::new(tag, tag_kind));
+        let end = matches.value_of(arg_names::END).map(|tag| Version::new(tag, tag_kind));
+        let before = matches
+            .value_of(arg_names::BEFORE)
+            .map(|tag| Version::new(tag, tag_kind));
 
-        CleanCommandInput::new(Box::new(tag_arg.version()), managed_versions)
+        CleanCommandInput::new(before, start, end, managed_versions)
     }
 }
 
@@ -841,7 +869,7 @@ mod tests {
 
     #[test]
     fn clean_input_should_resolve_version_to_remove_after() {
-        let command = vec!["geman", "clean", "-p", "6.21-GE-2"];
+        let command = vec!["geman", "clean", "-p", "-b", "6.21-GE-2"];
         let matches = setup_clap().try_get_matches_from(command).unwrap();
         let managed_versions = ManagedVersions::new(vec![
             ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
@@ -851,9 +879,28 @@ mod tests {
 
         let input = CleanCommandInput::create_from(&matches, managed_versions.clone());
         assert_eq!(
-            input.remove_after_version.as_ref(),
-            Box::new(Version::new("6.21-GE-2", TagKind::Proton)).as_ref()
+            input.remove_before_version,
+            Some(Version::new("6.21-GE-2", TagKind::Proton))
         );
+        assert_eq!(input.start_version, None);
+        assert_eq!(input.end_version, None);
+        assert_eq!(input.managed_versions, managed_versions);
+    }
+
+    #[test]
+    fn clean_input_should_resolve_start_and_end_version() {
+        let command = vec!["geman", "clean", "-p", "-s", "6.20-GE-1", "-e", "6.21-GE-2"];
+        let matches = setup_clap().try_get_matches_from(command).unwrap();
+        let managed_versions = ManagedVersions::new(vec![
+            ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
+        ]);
+
+        let input = CleanCommandInput::create_from(&matches, managed_versions.clone());
+        assert_eq!(input.remove_before_version, None);
+        assert_eq!(input.start_version, Some(Version::new("6.20-GE-1", TagKind::Proton)));
+        assert_eq!(input.end_version, Some(Version::new("6.21-GE-2", TagKind::Proton)));
         assert_eq!(input.managed_versions, managed_versions);
     }
 }

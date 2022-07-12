@@ -25,10 +25,15 @@ pub mod arg_names {
     pub const SOURCE_ARG: &str = "source";
     pub const DESTINATION_ARG: &str = "destination";
     pub const FILE_SYSTEM: &str = "file-system";
+    pub const BEFORE: &str = "before";
+    pub const START: &str = "start";
+    pub const END: &str = "end";
 }
 
 pub mod arg_group_names {
     pub const TAG: &str = "tag-args";
+    pub const START_END_RANGE: &str = "start-end-range";
+    pub const BEFORE_START_END: &str = "before-start-end";
 }
 
 pub mod about_text {
@@ -88,9 +93,13 @@ mod help_text {
     pub const FORGET_WINE_TAG: &str = "Forget a Wine GE version";
     pub const FORGET_WINE_LOL_TAG: &str = "Forget a Wine GE LoL version";
     // Clean
-    pub const CLEAN_PROTON_TAG: &str = "Clean a GE Proton version";
-    pub const CLEAN_WINE_TAG: &str = "Clean a Wine GE version";
-    pub const CLEAN_WINE_LOL_TAG: &str = "Clean a Wine GE LoL version";
+    pub const CLEAN_PROTON_TAG: &str = "Consider following tags as GE Proton tags";
+    pub const CLEAN_WINE_TAG: &str = "Consider following tags as Wine GE tags";
+    pub const CLEAN_WINE_LOL_TAG: &str = "Consider following tags as Wine GE (LoL) tags";
+    pub const CLEAN_BEFORE_TAG: &str = "Remove all versions before this tag - This argument conflicts with start and \
+    end";
+    pub const CLEAN_START_TAG: &str = "Sets the start tag for range removal";
+    pub const CLEAN_END_TAG: &str = "Sets the end tag for range removal";
 }
 
 pub mod value_name {
@@ -171,6 +180,61 @@ fn file_system_arg(help_text: &'static str) -> Arg {
         .long(arg_names::FILE_SYSTEM)
         .display_order(2)
         .help(help_text)
+}
+
+fn before_arg(help_text: &'static str) -> Arg {
+    Arg::new(arg_names::BEFORE)
+        .short('b')
+        .long(arg_names::BEFORE)
+        .display_order(2)
+        .help(help_text)
+        .takes_value(true)
+        .value_name(value_name::TAG)
+        .min_values(1)
+        .max_values(1)
+        .multiple_values(false)
+}
+
+fn start_arg(help_text: &'static str) -> Arg {
+    Arg::new(arg_names::START)
+        .short('s')
+        .long(arg_names::START)
+        .display_order(2)
+        .help(help_text)
+        .takes_value(true)
+        .value_name(value_name::TAG)
+        .min_values(1)
+        .max_values(1)
+        .multiple_values(false)
+}
+
+fn end_arg(help_text: &'static str) -> Arg {
+    Arg::new(arg_names::END)
+        .short('e')
+        .long(arg_names::END)
+        .display_order(2)
+        .help(help_text)
+        .takes_value(true)
+        .value_name(value_name::TAG)
+        .min_values(1)
+        .max_values(1)
+        .multiple_values(false)
+}
+
+fn start_end_tag_range_group(required: bool, conflicts: &[&'static str]) -> ArgGroup<'static> {
+    ArgGroup::new(arg_group_names::START_END_RANGE)
+        .args(&[arg_names::START, arg_names::END])
+        .required(required)
+        .multiple(true)
+        .requires_all(&[arg_names::START, arg_names::END])
+        .conflicts_with_all(conflicts)
+}
+
+fn before_start_end_group(required: bool) -> ArgGroup<'static> {
+    ArgGroup::new(arg_group_names::BEFORE_START_END)
+        .args(&[arg_names::START, arg_names::END, arg_names::BEFORE])
+        .required(required)
+        .multiple(true)
 }
 
 fn setup_list_cmd() -> Command<'static> {
@@ -310,9 +374,16 @@ fn setup_clean_cmd() -> Command<'static> {
         .about(about_text::CLEAN)
         .version(crate_version!())
         .args(&[
-            proton_arg(help_text::CLEAN_PROTON_TAG, 1),
-            wine_arg(help_text::CLEAN_WINE_TAG, 1),
-            lol_arg(help_text::CLEAN_WINE_LOL_TAG, 1),
+            proton_arg(help_text::CLEAN_PROTON_TAG, 0),
+            wine_arg(help_text::CLEAN_WINE_TAG, 0),
+            lol_arg(help_text::CLEAN_WINE_LOL_TAG, 0),
+            before_arg(help_text::CLEAN_BEFORE_TAG),
+            start_arg(help_text::CLEAN_START_TAG),
+            end_arg(help_text::CLEAN_END_TAG),
+        ])
+        .groups(&[
+            start_end_tag_range_group(false, &[arg_names::BEFORE]),
+            before_start_end_group(true),
         ])
 }
 

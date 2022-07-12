@@ -17,9 +17,21 @@ impl<'a> PartialEq for dyn Versioned + 'a {
     }
 }
 
+impl<T: Versioned> PartialEq<T> for dyn Versioned {
+    fn eq(&self, other: &T) -> bool {
+        self.tag().eq(other.tag()) && self.kind().eq(other.kind())
+    }
+}
+
 impl<'a> PartialOrd for dyn Versioned + 'a {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+impl<T: Versioned> PartialOrd<T> for dyn Versioned {
+    fn partial_cmp(&self, other: &T) -> Option<Ordering> {
+        Some(self.tag().cmp(other.tag()).then(self.kind().cmp(other.kind())))
     }
 }
 
@@ -37,12 +49,6 @@ impl<'a> fmt::Debug for dyn Versioned + 'a {
             .field("tag", self.tag())
             .field("kind", self.kind())
             .finish()
-    }
-}
-
-impl PartialEq<Version> for dyn Versioned {
-    fn eq(&self, other: &Version) -> bool {
-        self.tag().eq(other.tag()) && self.kind().eq(other.kind())
     }
 }
 
