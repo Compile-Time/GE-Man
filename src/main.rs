@@ -4,11 +4,13 @@ use std::io::Write;
 use anyhow::{bail, Context};
 use ge_man_lib::download::GeDownloader;
 
-use ge_man::clap::command_names::{ADD, APPLY, CHECK, LIST, MIGRATE, PROTON_USER_SETTINGS, REMOVE, USER_SETTINGS_COPY};
+use ge_man::clap::command_names::{
+    ADD, APPLY, CHECK, CLEAN, LIST, MIGRATE, PROTON_USER_SETTINGS, REMOVE, USER_SETTINGS_COPY,
+};
 use ge_man::command_execution::CommandHandler;
 use ge_man::command_input::{
-    AddCommandInput, ApplyCommandInput, CheckCommandInput, CopyUserSettingsCommandInput, GivenVersion,
-    ListCommandInput, MigrationCommandInput, RemoveCommandInput,
+    AddCommandInput, ApplyCommandInput, CheckCommandInput, CleanCommandInput, CleanDryRunInput,
+    CopyUserSettingsCommandInput, GivenVersion, ListCommandInput, MigrationCommandInput, RemoveCommandInput,
 };
 use ge_man::data::ManagedVersions;
 use ge_man::filesystem::FsMng;
@@ -81,7 +83,7 @@ fn main() -> anyhow::Result<()> {
             let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
             let managed_versions = ManagedVersions::from_file(&managed_versions_path)?;
             let app_config_path =
-                path_config.application_config_file(&RemoveCommandInput::tag_kind_from_matches(&matches));
+                path_config.application_config_file(RemoveCommandInput::tag_kind_from_matches(&matches));
             let input = RemoveCommandInput::create_from(&matches, managed_versions, app_config_path)?;
 
             let removed_and_managed_versions = command_handler.remove(input)?;
@@ -137,6 +139,34 @@ fn main() -> anyhow::Result<()> {
                 }
                 _ => Ok(()),
             }
+        }
+        Some(CLEAN) => {
+            let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
+            let managed_versions = ManagedVersions::from_file(&managed_versions_path)?;
+
+            if CleanDryRunInput::is_dry_run(&matches) {
+                let input = CleanDryRunInput::create_from(&matches, &managed_versions);
+                command_handler.clean_dry_run(&mut out_handle, input)?;
+            } else {
+                let app_config_path =
+                    path_config.application_config_file(CleanCommandInput::tag_kind_from_matches(&matches));
+                let input = CleanCommandInput::create_from(&matches, managed_versions, app_config_path)?;
+
+                let mut removed_and_managed_versions = command_handler.clean(&mut err_handle, input)?;
+                removed_and_managed_versions
+                    .managed_versions
+                    .write_to_file(&managed_versions_path)?;
+
+                writeln!(out_handle, "Successfully removed the following versions:").unwrap();
+                removed_and_managed_versions
+                    .removed_versions
+                    .sort_unstable_by(|a, b| a.cmp(b).reverse());
+                for version in &removed_and_managed_versions.removed_versions {
+                    writeln!(out_handle, "* {}", version.tag()).unwrap();
+                }
+            }
+
+            Ok(())
         }
         None => Ok(()),
         _ => Ok(()),

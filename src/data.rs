@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::fs;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
-use std::slice::Iter;
+use std::slice::{Iter, IterMut};
 use std::vec::IntoIter;
 
 use anyhow::{bail, Context};
@@ -219,6 +219,32 @@ impl ManagedVersions {
         versions
     }
 
+    pub fn versions_in_range<S, E>(&self, start: &S, end: &E) -> anyhow::Result<ManagedVersions>
+    where
+        S: Versioned,
+        E: Versioned,
+    {
+        if start.kind().ne(end.kind()) {
+            bail!("Start and end version kind needs to be equal!");
+        }
+        let kind = start.kind();
+
+        let versions_in_range = self
+            .iter()
+            .filter(|version| version.kind.eq(kind))
+            .filter(|version| version.gt(&start) && version.lt(&end))
+            .collect();
+
+        Ok(versions_in_range)
+    }
+
+    pub fn versions_before_given(&self, before: &impl Versioned) -> ManagedVersions {
+        self.iter()
+            .filter(|version| version.kind.eq(before.kind()))
+            .filter(|version| version.lt(&before))
+            .collect()
+    }
+
     pub fn vec_mut(&mut self) -> &mut Vec<ManagedVersion> {
         &mut self.versions
     }
@@ -255,6 +281,35 @@ impl<'a> IntoIterator for &'a ManagedVersions {
 
     fn into_iter(self) -> Self::IntoIter {
         self.versions.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut ManagedVersions {
+    type Item = &'a mut ManagedVersion;
+    type IntoIter = IterMut<'a, ManagedVersion>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.versions.iter_mut()
+    }
+}
+
+impl FromIterator<ManagedVersion> for ManagedVersions {
+    fn from_iter<T: IntoIterator<Item = ManagedVersion>>(iter: T) -> Self {
+        let mut managed_versions = ManagedVersions::default();
+        for version in iter {
+            managed_versions.push(version);
+        }
+        managed_versions
+    }
+}
+
+impl<'a> FromIterator<&'a ManagedVersion> for ManagedVersions {
+    fn from_iter<T: IntoIterator<Item = &'a ManagedVersion>>(iter: T) -> Self {
+        let mut managed_versions = ManagedVersions::default();
+        for version in iter {
+            managed_versions.push(version.clone());
+        }
+        managed_versions
     }
 }
 

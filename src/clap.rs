@@ -28,6 +28,7 @@ pub mod arg_names {
     pub const START: &str = "start";
     pub const END: &str = "end";
     pub const FORGET: &str = "forget";
+    pub const DRY_RUN: &str = "dry-run";
 }
 
 pub mod arg_group_names {
@@ -98,6 +99,7 @@ mod help_text {
     pub const CLEAN_START_TAG: &str = "Sets the start tag for range removal";
     pub const CLEAN_END_TAG: &str = "Sets the end tag for range removal";
     pub const CLEAN_FORGET: &str = "Do not remove the versions from the file system, only forget them in GE-Man";
+    pub const CLEAN_DRY_RUN: &str = "Do not perform any actions, only show affected versions.";
 }
 
 pub mod value_name {
@@ -243,6 +245,13 @@ fn before_start_end_group(required: bool) -> ArgGroup<'static> {
         .multiple(true)
 }
 
+fn dry_run_arg(help_text: &'static str) -> Arg {
+    Arg::new(arg_names::DRY_RUN)
+        .long(arg_names::DRY_RUN)
+        .display_order(2)
+        .help(help_text)
+}
+
 fn setup_list_cmd() -> Command<'static> {
     Command::new(command_names::LIST)
         .about(about_text::LIST)
@@ -376,6 +385,7 @@ fn setup_clean_cmd() -> Command<'static> {
             start_arg(help_text::CLEAN_START_TAG),
             end_arg(help_text::CLEAN_END_TAG),
             forget_arg(help_text::CLEAN_FORGET),
+            dry_run_arg(help_text::CLEAN_DRY_RUN),
         ])
         .groups(&[
             start_end_tag_range_group(false, &[arg_names::BEFORE]),

@@ -10,8 +10,8 @@ use ge_man_lib::error::GithubError;
 use ge_man_lib::tag::TagKind;
 
 use crate::command_input::{
-    AddCommandInput, ApplyCommandInput, CheckCommandInput, CleanCommandInput, CopyUserSettingsCommandInput,
-    GivenVersion, ListCommandInput, MigrationCommandInput, RemoveCommandInput,
+    AddCommandInput, ApplyCommandInput, CheckCommandInput, CleanCommandInput, CleanDryRunInput,
+    CopyUserSettingsCommandInput, GivenVersion, ListCommandInput, MigrationCommandInput, RemoveCommandInput,
 };
 use crate::compat_tool_app::ApplicationConfig;
 use crate::data::{ManagedVersion, ManagedVersions};
@@ -325,6 +325,29 @@ impl<'a> CommandHandler<'a> {
         Ok(NewAndManagedVersions::single_add(new_version, managed_versions))
     }
 
+    fn remove_version(
+        &self,
+        app_config: &ApplicationConfig,
+        version: &ManagedVersion,
+        managed_versions: &mut ManagedVersions,
+        forget: bool,
+    ) -> anyhow::Result<ManagedVersion> {
+        if app_config.check_if_version_is_in_use(version) {
+            bail!(
+                "{} version is in use. Apply a different version first to make removal possible",
+                version.kind().compatibility_tool_name()
+            );
+        }
+
+        if !forget {
+            self.fs_mng.remove_version(version)?;
+        }
+        match managed_versions.remove(version) {
+            Some(removed_version) => Ok(removed_version),
+            None => bail!(format!("Can not remove version: Version {} does not exist", version)),
+        }
+    }
+
     pub fn remove(&self, input: RemoveCommandInput) -> anyhow::Result<RemovedAndManagedVersions> {
         let RemoveCommandInput {
             mut managed_versions,
@@ -333,7 +356,7 @@ impl<'a> CommandHandler<'a> {
             forget,
         } = input;
 
-        let app_config = ApplicationConfig::create_copy(version_to_remove.kind(), &app_config_path);
+        let app_config = ApplicationConfig::create_copy(*version_to_remove.kind(), &app_config_path);
         if let Err(err) = &app_config {
             if let Some(err) = err.downcast_ref::<io::Error>() {
                 // Ignore file not found errors.
@@ -345,20 +368,10 @@ impl<'a> CommandHandler<'a> {
             }
         }
 
-        let app_config = app_config.unwrap();
-        if app_config.check_if_version_is_in_use(&version_to_remove) {
-            bail!(
-                "{} version is in use. Select a different version to make removal possible",
-                version_to_remove.kind().compatibility_tool_name()
-            );
-        }
-
-        if !forget {
-            self.fs_mng.remove_version(&version_to_remove).unwrap();
-        }
-        managed_versions.remove(&version_to_remove).unwrap();
+        let removed_version =
+            self.remove_version(&app_config.unwrap(), &version_to_remove, &mut managed_versions, forget)?;
         Ok(RemovedAndManagedVersions::single_remove(
-            version_to_remove,
+            removed_version,
             managed_versions,
         ))
     }
@@ -472,7 +485,32 @@ impl<'a> CommandHandler<'a> {
         Ok(())
     }
 
-    pub fn clean<S, E>(&self, stderr: &mut impl Write, input: CleanCommandInput<S, E>) -> RemovedAndManagedVersions
+    fn get_versions_for_clean<S, E>(
+        &self,
+        before: Option<&S>,
+        start: Option<&S>,
+        end: Option<&E>,
+        managed_versions: &ManagedVersions,
+    ) -> anyhow::Result<ManagedVersions>
+    where
+        S: Versioned,
+        E: Versioned,
+    {
+        let filtered = if let Some(remove_before_version) = before {
+            managed_versions.versions_before_given(remove_before_version)
+        } else {
+            let start_version = start.unwrap();
+            let end_version = end.unwrap();
+            managed_versions.versions_in_range(start_version, end_version)?
+        };
+        Ok(filtered)
+    }
+
+    pub fn clean<S, E>(
+        &self,
+        stderr: &mut impl Write,
+        input: CleanCommandInput<S, E>,
+    ) -> anyhow::Result<RemovedAndManagedVersions>
     where
         S: Versioned,
         E: Versioned,
@@ -481,46 +519,58 @@ impl<'a> CommandHandler<'a> {
             remove_before_version,
             start_version,
             end_version,
-            managed_versions,
+            mut managed_versions,
+            app_config,
             forget,
         } = input;
 
-        let mut removed_versions: ManagedVersions = ManagedVersions::new(Vec::with_capacity(managed_versions.len()));
-        let mut remaining_managed_versions = managed_versions.clone();
-        let tag_kind = remove_before_version
-            .as_ref()
-            .or(start_version.as_ref())
-            .map(|version| version.kind())
-            .unwrap();
+        let versions_to_remove = self.get_versions_for_clean(
+            remove_before_version.as_ref(),
+            start_version.as_ref(),
+            end_version.as_ref(),
+            &managed_versions,
+        )?;
 
-        managed_versions
-            .iter()
-            .filter(|version| version.kind().eq(tag_kind))
-            .filter(|version| {
-                if let Some(remove_before_version) = remove_before_version.as_ref() {
-                    version.lt(&remove_before_version)
-                } else {
-                    let start_version = start_version.as_ref().unwrap();
-                    let end_version = end_version.as_ref().unwrap();
-                    version.gt(&start_version) && version.lt(&end_version)
-                }
-            })
-            .for_each(|version| {
-                // We remove from a copy -> This can not be a None.
-                let removed_version = remaining_managed_versions.remove(version).unwrap();
-                if !forget {
-                    if let Err(err) = self.fs_mng.remove_version(&removed_version) {
-                        remaining_managed_versions.add(removed_version);
-                        writeln!(stderr, "{}", err).unwrap();
-                    } else {
-                        removed_versions.push(removed_version);
-                    }
-                } else {
-                    removed_versions.push(removed_version);
-                }
-            });
+        let mut removed_versions = ManagedVersions::default();
+        for version in versions_to_remove {
+            removed_versions.push(version.clone());
+            let remove_result = self.remove_version(&app_config, &version, &mut managed_versions, forget);
+            if let Err(err) = remove_result {
+                let re_added_version = removed_versions.pop().unwrap();
+                writeln!(stderr, "Failed to remove the version {}:", re_added_version.tag(),).unwrap();
+                writeln!(stderr, "\t{:#}", err).unwrap();
+            }
+        }
 
-        RemovedAndManagedVersions::new(removed_versions, remaining_managed_versions)
+        Ok(RemovedAndManagedVersions::new(removed_versions, managed_versions))
+    }
+
+    pub fn clean_dry_run<S, E>(&self, stdout: &mut impl Write, input: CleanDryRunInput<S, E>) -> anyhow::Result<()>
+    where
+        S: Versioned,
+        E: Versioned,
+    {
+        let CleanDryRunInput {
+            remove_before_version,
+            start_version,
+            end_version,
+            managed_versions,
+        } = input;
+
+        let mut versions_to_remove = self.get_versions_for_clean(
+            remove_before_version.as_ref(),
+            start_version.as_ref(),
+            end_version.as_ref(),
+            &managed_versions,
+        )?;
+        versions_to_remove.sort_unstable_by(|a, b| a.cmp(b).reverse());
+
+        writeln!(stdout, "DRY-RUN - The following versions would be removed:").unwrap();
+        for version in versions_to_remove {
+            writeln!(stdout, "* {}", version.tag()).unwrap();
+        }
+
+        Ok(())
     }
 }
 
@@ -561,7 +611,7 @@ mod tests {
         pub fn assert_line(&self, line: usize, expected: &str) {
             let line = self.lines.get(line).unwrap();
             assert!(line.contains("\n"));
-            assert_eq!(line.trim(), expected);
+            assert_eq!(line.trim_end(), expected);
         }
 
         pub fn assert_count(&self, size: usize) {
@@ -963,7 +1013,7 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(
             err.to_string(),
-            "Proton GE version is in use. Select a different version to make removal possible"
+            "Proton GE version is in use. Apply a different version first to make removal possible"
         );
     }
 
@@ -1292,6 +1342,7 @@ mod tests {
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let mut stderr = AssertLines::new();
+        let app_config = ApplicationConfig::new(TagKind::Proton, "GE-Proton7-20".to_string());
         let input: CleanCommandInput<Version, Version> = CleanCommandInput::new(
             Some(Version::new("6.21-GE-2", TagKind::Proton)),
             None,
@@ -1306,10 +1357,11 @@ mod tests {
                 ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
                 ManagedVersion::new("6.22-GE-1", TagKind::Proton, ""),
             ]),
+            app_config,
             false,
         );
 
-        let removed_and_managed_versions = command_handler.clean(&mut stderr, input);
+        let removed_and_managed_versions = command_handler.clean(&mut stderr, input).unwrap();
         stderr.assert_empty();
         assert_eq!(removed_and_managed_versions.managed_versions.len(), 6);
         assert_eq!(removed_and_managed_versions.removed_versions.len(), 2);
@@ -1343,6 +1395,7 @@ mod tests {
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let mut stderr = AssertLines::new();
+        let app_config = ApplicationConfig::new(TagKind::Proton, "GE-Proton7-20".to_string());
         let input: CleanCommandInput<Version, Version> = CleanCommandInput::new(
             None,
             Some(Version::new("6.19-GE-1", TagKind::Proton)),
@@ -1357,10 +1410,11 @@ mod tests {
                 ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
                 ManagedVersion::new("6.22-GE-1", TagKind::Proton, ""),
             ]),
+            app_config,
             false,
         );
 
-        let removed_and_managed_versions = command_handler.clean(&mut stderr, input);
+        let removed_and_managed_versions = command_handler.clean(&mut stderr, input).unwrap();
         stderr.assert_empty();
         assert_eq!(removed_and_managed_versions.managed_versions.len(), 4);
         assert_eq!(removed_and_managed_versions.removed_versions.len(), 4);
@@ -1386,7 +1440,7 @@ mod tests {
     }
 
     #[test]
-    fn clean_should_not_remove_versions_where_an_error_occurred() {
+    fn clean_should_not_remove_versions_where_an_file_system_error_occurred() {
         let ge_downloader = MockDownloader::new();
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng
@@ -1404,6 +1458,7 @@ mod tests {
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let mut stderr = AssertLines::new();
+        let app_config = ApplicationConfig::new(TagKind::Proton, "GE-Proton7-20".to_string());
         let input: CleanCommandInput<Version, Version> = CleanCommandInput::new(
             Some(Version::new("6.21-GE-2", TagKind::Proton)),
             None,
@@ -1414,10 +1469,11 @@ mod tests {
                 ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
                 ManagedVersion::new("6.22-GE-1", TagKind::Proton, ""),
             ]),
+            app_config,
             false,
         );
 
-        let removed_and_managed_versions = command_handler.clean(&mut stderr, input);
+        let removed_and_managed_versions = command_handler.clean(&mut stderr, input).unwrap();
         assert_eq!(removed_and_managed_versions.managed_versions.len(), 3);
         assert_eq!(removed_and_managed_versions.removed_versions.len(), 1);
         vec![
@@ -1433,8 +1489,10 @@ mod tests {
             removed_and_managed_versions.removed_versions,
             ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-1", TagKind::Proton, "")])
         );
-        stderr.assert_count(1);
-        stderr.assert_line(0, "Mocked error");
+
+        stderr.assert_count(2);
+        stderr.assert_line(0, "Failed to remove the version 6.20-GE-1:");
+        stderr.assert_line(1, "\tMocked error");
     }
 
     #[test]
@@ -1446,6 +1504,7 @@ mod tests {
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
         let mut stderr = AssertLines::new();
+        let app_config = ApplicationConfig::new(TagKind::Proton, "GE-Proton7-20".to_string());
         let input: CleanCommandInput<Version, Version> = CleanCommandInput::new(
             None,
             Some(Version::new("6.19-GE-1", TagKind::Proton)),
@@ -1460,10 +1519,11 @@ mod tests {
                 ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
                 ManagedVersion::new("6.22-GE-1", TagKind::Proton, ""),
             ]),
+            app_config,
             true,
         );
 
-        let removed_and_managed_versions = command_handler.clean(&mut stderr, input);
+        let removed_and_managed_versions = command_handler.clean(&mut stderr, input).unwrap();
         stderr.assert_empty();
         assert_eq!(removed_and_managed_versions.managed_versions.len(), 4);
         assert_eq!(removed_and_managed_versions.removed_versions.len(), 4);
@@ -1486,5 +1546,94 @@ mod tests {
                 ManagedVersion::new("6.22-GE-1", TagKind::Proton, ""),
             ])
         );
+    }
+
+    #[test]
+    fn clean_should_not_remove_version_in_use() {
+        let ge_downloader = MockDownloader::new();
+        let mut fs_mng = MockFilesystemManager::new();
+        fs_mng
+            .expect_remove_version()
+            .never()
+            .withf(|version: &ManagedVersion| version.tag().eq("6.20-GE-1"));
+
+        fs_mng
+            .expect_remove_version()
+            .once()
+            .withf(|version: &ManagedVersion| version.tag().eq("6.21-GE-1"))
+            .returning(|_| Ok(()));
+
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
+
+        let mut stderr = AssertLines::new();
+        let app_config = ApplicationConfig::new(TagKind::Proton, "6-20-GE-1".to_string());
+        let input: CleanCommandInput<Version, Version> = CleanCommandInput::new(
+            Some(Version::new("6.21-GE-2", TagKind::Proton)),
+            None,
+            None,
+            ManagedVersions::new(vec![
+                ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6-20-GE-1"),
+                ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
+                ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
+                ManagedVersion::new("6.22-GE-1", TagKind::Proton, ""),
+            ]),
+            app_config,
+            false,
+        );
+
+        let removed_and_managed_versions = command_handler.clean(&mut stderr, input).unwrap();
+        assert_eq!(removed_and_managed_versions.managed_versions.len(), 3);
+        assert_eq!(removed_and_managed_versions.removed_versions.len(), 1);
+        vec![
+            ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
+            ManagedVersion::new("6.22-GE-1", TagKind::Proton, ""),
+        ]
+        .iter()
+        .for_each(|version| {
+            assert!(removed_and_managed_versions.managed_versions.contains(version));
+        });
+        assert_eq!(
+            removed_and_managed_versions.removed_versions,
+            ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-1", TagKind::Proton, "")])
+        );
+
+        stderr.assert_count(2);
+        stderr.assert_line(0, "Failed to remove the version 6.20-GE-1:");
+        stderr.assert_line(
+            1,
+            "\tProton GE version is in use. Apply a different version first to make removal possible",
+        );
+    }
+
+    #[test]
+    fn clean_dry_run_should_print_versions() {
+        let ge_downloader = MockDownloader::new();
+        let fs_mng = MockFilesystemManager::new();
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
+
+        let mut stdout = AssertLines::new();
+        let managed_versions = ManagedVersions::new(vec![
+            ManagedVersion::new("6.20-GE-1", TagKind::lol(), ""),
+            ManagedVersion::new("6.21-GE-1", TagKind::lol(), ""),
+            ManagedVersion::new("6.20-GE-1", TagKind::wine(), ""),
+            ManagedVersion::new("6.21-GE-1", TagKind::wine(), ""),
+            ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
+            ManagedVersion::new("6.22-GE-1", TagKind::Proton, ""),
+        ]);
+        let input: CleanDryRunInput<Version, Version> = CleanDryRunInput::new(
+            Some(Version::new("6.21-GE-2", TagKind::Proton)),
+            None,
+            None,
+            &managed_versions,
+        );
+
+        command_handler.clean_dry_run(&mut stdout, input).unwrap();
+        stdout.assert_count(3);
+        stdout.assert_line(0, "DRY-RUN - The following versions would be removed:");
+        stdout.assert_line(1, "* 6.21-GE-1");
+        stdout.assert_line(2, "* 6.20-GE-1");
     }
 }

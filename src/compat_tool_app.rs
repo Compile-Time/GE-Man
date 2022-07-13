@@ -3,34 +3,26 @@ use ge_man_lib::config::{LutrisConfig, SteamConfig};
 use ge_man_lib::tag::TagKind;
 use std::path::Path;
 
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct ApplicationConfig {
-    kind: String,
-    version: String,
+    kind: TagKind,
     version_dir_name: String,
 }
 
 impl ApplicationConfig {
-    pub fn new(kind: String, version: String, version_dir_name: String) -> Self {
-        Self {
-            kind,
-            version,
-            version_dir_name,
-        }
+    pub fn new(kind: TagKind, version_dir_name: String) -> Self {
+        Self { kind, version_dir_name }
     }
 
-    pub fn kind(&self) -> &String {
-        &self.kind
-    }
-
-    pub fn version(&self) -> &String {
-        &self.version
+    pub fn kind(&self) -> TagKind {
+        self.kind
     }
 
     pub fn version_dir_name(&self) -> &String {
         &self.version_dir_name
     }
 
-    pub fn create_copy(kind: &TagKind, path: &Path) -> anyhow::Result<ApplicationConfig> {
+    pub fn create_copy(kind: TagKind, path: &Path) -> anyhow::Result<ApplicationConfig> {
         let config = match kind {
             TagKind::Proton => {
                 let config = SteamConfig::create_copy(path)?;
@@ -51,19 +43,19 @@ impl ApplicationConfig {
 
 impl From<SteamConfig> for ApplicationConfig {
     fn from(config: SteamConfig) -> Self {
-        ApplicationConfig::new(config.kind(), config.proton_version(), config.version_dir_name())
+        ApplicationConfig::new(config.kind(), config.proton_version())
     }
 }
 
 impl From<LutrisConfig> for ApplicationConfig {
     fn from(config: LutrisConfig) -> Self {
-        ApplicationConfig::new(config.kind(), config.wine_version(), config.version_dir_name())
+        ApplicationConfig::new(config.kind(), config.wine_version())
     }
 }
 
 pub trait AppConfig {
     fn version_dir_name(&self) -> String;
-    fn kind(&self) -> String;
+    fn kind(&self) -> TagKind;
 }
 
 impl AppConfig for SteamConfig {
@@ -71,8 +63,8 @@ impl AppConfig for SteamConfig {
         self.proton_version()
     }
 
-    fn kind(&self) -> String {
-        String::from("Steam")
+    fn kind(&self) -> TagKind {
+        TagKind::Proton
     }
 }
 
@@ -81,7 +73,11 @@ impl AppConfig for LutrisConfig {
         self.wine_version()
     }
 
-    fn kind(&self) -> String {
-        String::from("Lutris")
+    fn kind(&self) -> TagKind {
+        if self.wine_version().to_lowercase().contains("lol") {
+            TagKind::lol()
+        } else {
+            TagKind::wine()
+        }
     }
 }

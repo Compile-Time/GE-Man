@@ -5,6 +5,7 @@ use clap::ArgMatches;
 use ge_man_lib::tag::{Tag, TagKind, WineTagKind};
 
 use crate::clap::{arg_group_names, arg_names, command_names};
+use crate::compat_tool_app::ApplicationConfig;
 use crate::data::{ManagedVersion, ManagedVersions};
 use crate::filesystem;
 use crate::path::PathConfiguration;
@@ -117,13 +118,13 @@ impl ListCommandInput {
         .filter(|kind| Some(kind).eq(&tag_kind.as_ref()) || tag_kind.is_none())
         .map(|kind| {
             let newest = matches.is_present(arg_names::NEWEST_ARG);
-            let app_config_file = path_cfg.application_config_file(&kind);
-            let in_use_directory_name = filesystem::in_use_compat_tool_dir_name(&app_config_file, &kind).ok();
+            let app_config_file = path_cfg.application_config_file(kind);
+            let in_use_directory_name = filesystem::in_use_compat_tool_dir_name(&app_config_file, kind).ok();
 
             let mut managed_versions = managed_versions.clone();
             managed_versions.vec_mut().retain(|version| version.kind().eq(&kind));
             let app_name = application_name(&kind);
-            let app_compat_tool_dir = path_cfg.application_compatibility_tools_dir(&kind);
+            let app_compat_tool_dir = path_cfg.application_compatibility_tools_dir(kind);
 
             ListCommandInput::new(
                 kind,
@@ -369,6 +370,32 @@ impl CopyUserSettingsCommandInput {
     }
 }
 
+mod common_clean_input {
+    use super::*;
+
+    pub fn tag_kind(matches: &ArgMatches) -> TagKind {
+        TagArg::try_from(matches)
+            .expect("Could not create tag information from provided argument")
+            .kind
+    }
+
+    pub fn start(matches: &ArgMatches, tag_kind: TagKind) -> Option<Version> {
+        matches
+            .value_of(arg_names::START)
+            .map(|tag| Version::new(tag, tag_kind))
+    }
+
+    pub fn end(matches: &ArgMatches, tag_kind: TagKind) -> Option<Version> {
+        matches.value_of(arg_names::END).map(|tag| Version::new(tag, tag_kind))
+    }
+
+    pub fn before(matches: &ArgMatches, tag_kind: TagKind) -> Option<Version> {
+        matches
+            .value_of(arg_names::BEFORE)
+            .map(|tag| Version::new(tag, tag_kind))
+    }
+}
+
 pub struct CleanCommandInput<S, E>
 where
     S: Versioned,
@@ -378,6 +405,7 @@ where
     pub start_version: Option<S>,
     pub end_version: Option<E>,
     pub managed_versions: ManagedVersions,
+    pub app_config: ApplicationConfig,
     pub forget: bool,
 }
 
@@ -391,6 +419,7 @@ where
         start_version: Option<S>,
         end_version: Option<E>,
         managed_versions: ManagedVersions,
+        app_config: ApplicationConfig,
         forget: bool,
     ) -> Self {
         Self {
@@ -398,27 +427,91 @@ where
             start_version,
             end_version,
             managed_versions,
+            app_config: app_config,
             forget,
         }
     }
 }
 
 impl CleanCommandInput<Version, Version> {
-    pub fn create_from(matches: &ArgMatches, managed_versions: ManagedVersions) -> Self {
+    pub fn create_from(
+        matches: &ArgMatches,
+        managed_versions: ManagedVersions,
+        app_config_path: PathBuf,
+    ) -> anyhow::Result<Self> {
         let matches = matches.subcommand_matches(command_names::CLEAN).unwrap();
-        let tag_kind = TagArg::try_from(matches)
-            .expect("Could not create tag information from provided argument")
-            .kind;
-        let start = matches
-            .value_of(arg_names::START)
-            .map(|tag| Version::new(tag, tag_kind));
-        let end = matches.value_of(arg_names::END).map(|tag| Version::new(tag, tag_kind));
-        let before = matches
-            .value_of(arg_names::BEFORE)
-            .map(|tag| Version::new(tag, tag_kind));
-        let forget = matches.is_present(arg_names::FORGET);
 
-        CleanCommandInput::new(before, start, end, managed_versions, forget)
+        let tag_kind = common_clean_input::tag_kind(matches);
+        let start = common_clean_input::start(matches, tag_kind);
+        let end = common_clean_input::end(matches, tag_kind);
+        let before = common_clean_input::before(matches, tag_kind);
+        let forget = matches.is_present(arg_names::FORGET);
+        let app_config = ApplicationConfig::create_copy(tag_kind, &app_config_path)?;
+
+        Ok(CleanCommandInput::new(
+            before,
+            start,
+            end,
+            managed_versions,
+            app_config,
+            forget,
+        ))
+    }
+
+    pub fn tag_kind_from_matches(matches: &ArgMatches) -> TagKind {
+        let matches = matches.subcommand_matches(command_names::CLEAN).unwrap();
+        common_clean_input::tag_kind(matches)
+    }
+}
+
+pub struct CleanDryRunInput<'a, S, E>
+where
+    S: Versioned,
+    E: Versioned,
+{
+    pub remove_before_version: Option<S>,
+    pub start_version: Option<S>,
+    pub end_version: Option<E>,
+    pub managed_versions: &'a ManagedVersions,
+}
+
+impl<'a, S, E> CleanDryRunInput<'a, S, E>
+where
+    S: Versioned,
+    E: Versioned,
+{
+    pub fn new(
+        remove_before_version: Option<S>,
+        start_version: Option<S>,
+        end_version: Option<E>,
+        managed_versions: &'a ManagedVersions,
+    ) -> Self {
+        Self {
+            remove_before_version,
+            start_version,
+            end_version,
+            managed_versions,
+        }
+    }
+}
+
+impl<'a> CleanDryRunInput<'a, Version, Version> {
+    pub fn create_from(matches: &ArgMatches, managed_versions: &'a ManagedVersions) -> Self {
+        let matches = matches.subcommand_matches(command_names::CLEAN).unwrap();
+        let tag_kind = common_clean_input::tag_kind(matches);
+
+        let before = common_clean_input::before(matches, tag_kind);
+        let start = common_clean_input::start(matches, tag_kind);
+        let end = common_clean_input::end(matches, tag_kind);
+
+        CleanDryRunInput::new(before, start, end, managed_versions)
+    }
+
+    pub fn is_dry_run(matches: &ArgMatches) -> bool {
+        matches
+            .subcommand_matches(command_names::CLEAN)
+            .unwrap()
+            .is_present(arg_names::DRY_RUN)
     }
 }
 
@@ -845,7 +938,7 @@ mod tests {
     }
 
     #[test]
-    fn clean_input_should_resolve_version_to_remove_after() {
+    fn clean_input_should_resolve_version_to_remove_before() {
         let command = vec!["geman", "clean", "-p", "-b", "6.21-GE-2"];
         let matches = setup_clap().try_get_matches_from(command).unwrap();
         let managed_versions = ManagedVersions::new(vec![
@@ -854,7 +947,12 @@ mod tests {
             ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
         ]);
 
-        let input = CleanCommandInput::create_from(&matches, managed_versions.clone());
+        let input = CleanCommandInput::create_from(
+            &matches,
+            managed_versions.clone(),
+            PathBuf::from("test_resources/assets/config.vdf"),
+        )
+        .unwrap();
         assert_eq!(
             input.remove_before_version,
             Some(Version::new("6.21-GE-2", TagKind::Proton))
@@ -862,6 +960,10 @@ mod tests {
         assert_eq!(input.start_version, None);
         assert_eq!(input.end_version, None);
         assert_eq!(input.managed_versions, managed_versions);
+        assert_eq!(
+            input.app_config,
+            ApplicationConfig::new(TagKind::Proton, "Proton-6.21-GE-2".to_string())
+        );
         assert_eq!(input.forget, false);
     }
 
@@ -875,11 +977,20 @@ mod tests {
             ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
         ]);
 
-        let input = CleanCommandInput::create_from(&matches, managed_versions.clone());
+        let input = CleanCommandInput::create_from(
+            &matches,
+            managed_versions.clone(),
+            PathBuf::from("test_resources/assets/config.vdf"),
+        )
+        .unwrap();
         assert_eq!(input.remove_before_version, None);
         assert_eq!(input.start_version, Some(Version::new("6.20-GE-1", TagKind::Proton)));
         assert_eq!(input.end_version, Some(Version::new("6.21-GE-2", TagKind::Proton)));
         assert_eq!(input.managed_versions, managed_versions);
+        assert_eq!(
+            input.app_config,
+            ApplicationConfig::new(TagKind::Proton, "Proton-6.21-GE-2".to_string())
+        );
         assert_eq!(input.forget, false);
     }
 
@@ -893,11 +1004,20 @@ mod tests {
             ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
         ]);
 
-        let input = CleanCommandInput::create_from(&matches, managed_versions.clone());
+        let input = CleanCommandInput::create_from(
+            &matches,
+            managed_versions.clone(),
+            PathBuf::from("test_resources/assets/config.vdf"),
+        )
+        .unwrap();
         assert_eq!(input.remove_before_version, None);
         assert_eq!(input.start_version, Some(Version::new("6.20-GE-1", TagKind::Proton)));
         assert_eq!(input.end_version, Some(Version::new("6.21-GE-2", TagKind::Proton)));
         assert_eq!(input.managed_versions, managed_versions);
+        assert_eq!(
+            input.app_config,
+            ApplicationConfig::new(TagKind::Proton, "Proton-6.21-GE-2".to_string())
+        );
         assert_eq!(input.forget, true);
     }
 }

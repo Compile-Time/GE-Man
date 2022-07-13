@@ -22,7 +22,7 @@ wine:
   version: VERSION
 "#;
 
-pub fn in_use_compat_tool_dir_name(config_file_path: &Path, kind: &TagKind) -> anyhow::Result<String> {
+pub fn in_use_compat_tool_dir_name(config_file_path: &Path, kind: TagKind) -> anyhow::Result<String> {
     debug!(
         "Reading currently used compatibility tool version from the following config file: {}",
         config_file_path.display()
