@@ -11,11 +11,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 * Add the ability to set the Steam installation path via a config file in `$XDG_CONFIG_HOME/ge_man/config.json`. <br>
   Alternatively, the Steam path can also be set with the `GE_MAN_STEAM_PATH` variable.
-* List command:
-  * Added the `--file-system` (`-f`) flag
+* `list` command
+  * Added the `--file-system` (`-f`) flag<br>
     When this flag is set the content of the Steam compatibilitytools.d or Lutris runners folder is listed. This is
     helpful for migrating folders or just checking in general what else is present in those directories. Bear in
-    mind that this flag will display non GE-Man managed versions!
+    mind that this flag will display both GE-Man managed and non-managed versions!
+* `clean` command
+  * Remove multiple GE Proton or Wine GE versions.
 
 ### Changed
 
