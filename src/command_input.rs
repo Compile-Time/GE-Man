@@ -206,14 +206,21 @@ pub struct RemoveCommandInput {
     pub managed_versions: ManagedVersions,
     pub version_to_remove: ManagedVersion,
     pub app_config_path: PathBuf,
+    pub forget: bool,
 }
 
 impl RemoveCommandInput {
-    pub fn new(managed_versions: ManagedVersions, version_to_remove: ManagedVersion, app_config_path: PathBuf) -> Self {
+    pub fn new(
+        managed_versions: ManagedVersions,
+        version_to_remove: ManagedVersion,
+        app_config_path: PathBuf,
+        forget: bool,
+    ) -> Self {
         Self {
             managed_versions,
             version_to_remove,
             app_config_path,
+            forget,
         }
     }
 
@@ -227,13 +234,19 @@ impl RemoveCommandInput {
         if tag_arg.tag.is_none() {
             bail!("No version provided! - A version is required for removal");
         }
+        let forget = matches.is_present(arg_names::FORGET);
 
         let version = match managed_versions.find_version(&tag_arg.version()) {
             Some(v) => v,
             None => bail!("Given version is not managed"),
         };
 
-        Ok(RemoveCommandInput::new(managed_versions, version, app_config_path))
+        Ok(RemoveCommandInput::new(
+            managed_versions,
+            version,
+            app_config_path,
+            forget,
+        ))
     }
 
     pub fn tag_kind_from_matches(matches: &ArgMatches) -> TagKind {
@@ -356,28 +369,6 @@ impl CopyUserSettingsCommandInput {
     }
 }
 
-pub struct ForgetCommandInput {
-    pub version_to_forget: Box<dyn Versioned>,
-    pub managed_versions: ManagedVersions,
-}
-
-impl ForgetCommandInput {
-    pub fn new(version_to_forget: Box<dyn Versioned>, managed_versions: ManagedVersions) -> Self {
-        Self {
-            version_to_forget,
-            managed_versions,
-        }
-    }
-
-    pub fn create_from(matches: &ArgMatches, managed_versions: ManagedVersions) -> Self {
-        let matches = matches.subcommand_matches(command_names::FORGET).unwrap();
-        let tag_arg = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
-
-        let version = Box::new(tag_arg.version());
-        ForgetCommandInput::new(version, managed_versions)
-    }
-}
-
 pub struct CleanCommandInput<S, E>
 where
     S: Versioned,
@@ -387,6 +378,7 @@ where
     pub start_version: Option<S>,
     pub end_version: Option<E>,
     pub managed_versions: ManagedVersions,
+    pub forget: bool,
 }
 
 impl<S, E> CleanCommandInput<S, E>
@@ -399,12 +391,14 @@ where
         start_version: Option<S>,
         end_version: Option<E>,
         managed_versions: ManagedVersions,
+        forget: bool,
     ) -> Self {
         Self {
             remove_before_version,
             start_version,
             end_version,
             managed_versions,
+            forget,
         }
     }
 }
@@ -422,8 +416,9 @@ impl CleanCommandInput<Version, Version> {
         let before = matches
             .value_of(arg_names::BEFORE)
             .map(|tag| Version::new(tag, tag_kind));
+        let forget = matches.is_present(arg_names::FORGET);
 
-        CleanCommandInput::new(before, start, end, managed_versions)
+        CleanCommandInput::new(before, start, end, managed_versions, forget)
     }
 }
 
@@ -559,13 +554,29 @@ mod tests {
     #[test_case("-p", TagKind::Proton; "Remove Proton GE version")]
     #[test_case("-w", TagKind::wine(); "Remove Wine GE version")]
     #[test_case("-l", TagKind::lol(); "Remove Wine GE LoL version")]
-    fn remove_specific_tag(tag_arg: &str, kind: TagKind) {
-        let command = vec!["geman", "rm", tag_arg, "6.20-GE-1"];
+    fn remove_specific_tag(kind_arg: &str, kind: TagKind) {
+        let command = vec!["geman", "rm", kind_arg, "6.20-GE-1"];
         let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", kind, "6.20-GE-1")]);
         let expected = RemoveCommandInput::new(
             managed_versions,
             ManagedVersion::new("6.20-GE-1", kind, "6.20-GE-1"),
             PathBuf::from("/tmp/test"),
+            false,
+        );
+        remove_test_template(command, expected);
+    }
+
+    #[test_case("-p", TagKind::Proton; "Remove Proton GE version")]
+    #[test_case("-w", TagKind::wine(); "Remove Wine GE version")]
+    #[test_case("-l", TagKind::lol(); "Remove Wine GE LoL version")]
+    fn remove_with_forget_flag(kind_arg: &str, kind: TagKind) {
+        let command = vec!["geman", "rm", kind_arg, "6.20-GE-1", "-f"];
+        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", kind, "6.20-GE-1")]);
+        let expected = RemoveCommandInput::new(
+            managed_versions,
+            ManagedVersion::new("6.20-GE-1", kind, "6.20-GE-1"),
+            PathBuf::from("/tmp/test"),
+            true,
         );
         remove_test_template(command, expected);
     }
@@ -772,40 +783,6 @@ mod tests {
         assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
     }
 
-    #[test_case("-p"; "Forget a Proton GE version")]
-    #[test_case("-w"; "Forget a Wine GE version")]
-    #[test_case("-l"; "Forget a Wine GE LoL version")]
-    fn forget_without_tag(kind: &str) {
-        let args = vec!["geman", "forget", kind];
-        let result = setup_clap().try_get_matches_from(args);
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.kind(), ErrorKind::EmptyValue);
-    }
-
-    #[test]
-    fn forget_without_kind() {
-        let command = vec!["geman", "forget"];
-        let result = setup_clap().try_get_matches_from(command);
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
-    }
-
-    #[test]
-    fn forget_with_all_required_args() {
-        let command = vec!["geman", "forget", "-p", "6.20-GE-1"];
-
-        let matches = setup_clap().try_get_matches_from(command).unwrap();
-        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")]);
-        let input = ForgetCommandInput::create_from(&matches, managed_versions);
-
-        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")]);
-        let expected = ForgetCommandInput::new(Box::new(Version::new("6.20-GE-1", TagKind::Proton)), managed_versions);
-        assert_eq!(input.version_to_forget.as_ref(), expected.version_to_forget.as_ref());
-        assert_eq!(input.managed_versions, expected.managed_versions);
-    }
-
     #[test]
     fn list_create_lutris_input() {
         let command = vec!["geman", "list", "-w"];
@@ -885,6 +862,7 @@ mod tests {
         assert_eq!(input.start_version, None);
         assert_eq!(input.end_version, None);
         assert_eq!(input.managed_versions, managed_versions);
+        assert_eq!(input.forget, false);
     }
 
     #[test]
@@ -902,5 +880,24 @@ mod tests {
         assert_eq!(input.start_version, Some(Version::new("6.20-GE-1", TagKind::Proton)));
         assert_eq!(input.end_version, Some(Version::new("6.21-GE-2", TagKind::Proton)));
         assert_eq!(input.managed_versions, managed_versions);
+        assert_eq!(input.forget, false);
+    }
+
+    #[test]
+    fn clean_with_forget_flag() {
+        let command = vec!["geman", "clean", "-p", "-s", "6.20-GE-1", "-e", "6.21-GE-2", "-f"];
+        let matches = setup_clap().try_get_matches_from(command).unwrap();
+        let managed_versions = ManagedVersions::new(vec![
+            ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
+        ]);
+
+        let input = CleanCommandInput::create_from(&matches, managed_versions.clone());
+        assert_eq!(input.remove_before_version, None);
+        assert_eq!(input.start_version, Some(Version::new("6.20-GE-1", TagKind::Proton)));
+        assert_eq!(input.end_version, Some(Version::new("6.21-GE-2", TagKind::Proton)));
+        assert_eq!(input.managed_versions, managed_versions);
+        assert_eq!(input.forget, true);
     }
 }

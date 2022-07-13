@@ -11,7 +11,6 @@ pub mod command_names {
     pub const APPLY: &str = "apply";
     pub const PROTON_USER_SETTINGS: &str = "user-settings";
     pub const USER_SETTINGS_COPY: &str = "copy";
-    pub const FORGET: &str = "forget";
     pub const CLEAN: &str = "clean";
 }
 
@@ -28,6 +27,7 @@ pub mod arg_names {
     pub const BEFORE: &str = "before";
     pub const START: &str = "start";
     pub const END: &str = "end";
+    pub const FORGET: &str = "forget";
 }
 
 pub mod arg_group_names {
@@ -72,6 +72,7 @@ mod help_text {
     pub const REMOVE_PROTON_TAG: &str = "Remove a GE Proton version";
     pub const REMOVE_WINE_TAG: &str = "Remove a Wine GE version";
     pub const REMOVE_WINE_LOL_TAG: &str = "Remove a Wine GE LoL version";
+    pub const REMOVE_FORGET: &str = "Do not remove the versions from the file system, only forget them in GE-Man";
     // Check
     pub const CHECK_PROTON_TAG: &str = "Check for the latest GE Proton version";
     pub const CHECK_WINE_TAG: &str = "Check for the latest Wine GE version";
@@ -88,10 +89,6 @@ mod help_text {
     // User settings copy
     pub const USER_SETTINGS_COPY_SOURCE: &str = "Source tag where to copy the user_settings.py from.";
     pub const USER_SETTINGS_COPY_DESTINATION: &str = "Destination tag where to copy the user_settings.py to.";
-    // Forget
-    pub const FORGET_PROTON_TAG: &str = "Forget a GE Proton version";
-    pub const FORGET_WINE_TAG: &str = "Forget a Wine GE version";
-    pub const FORGET_WINE_LOL_TAG: &str = "Forget a Wine GE LoL version";
     // Clean
     pub const CLEAN_PROTON_TAG: &str = "Consider following tags as GE Proton tags";
     pub const CLEAN_WINE_TAG: &str = "Consider following tags as Wine GE tags";
@@ -100,6 +97,7 @@ mod help_text {
     end";
     pub const CLEAN_START_TAG: &str = "Sets the start tag for range removal";
     pub const CLEAN_END_TAG: &str = "Sets the end tag for range removal";
+    pub const CLEAN_FORGET: &str = "Do not remove the versions from the file system, only forget them in GE-Man";
 }
 
 pub mod value_name {
@@ -221,6 +219,14 @@ fn end_arg(help_text: &'static str) -> Arg {
         .multiple_values(false)
 }
 
+fn forget_arg(help_text: &'static str) -> Arg {
+    Arg::new(arg_names::FORGET)
+        .short('f')
+        .long(arg_names::FORGET)
+        .display_order(2)
+        .help(help_text)
+}
+
 fn start_end_tag_range_group(required: bool, conflicts: &[&'static str]) -> ArgGroup<'static> {
     ArgGroup::new(arg_group_names::START_END_RANGE)
         .args(&[arg_names::START, arg_names::END])
@@ -273,6 +279,7 @@ fn setup_rm_cmd() -> Command<'static> {
             proton_arg(help_text::REMOVE_PROTON_TAG, 1),
             wine_arg(help_text::REMOVE_WINE_TAG, 1),
             lol_arg(help_text::REMOVE_WINE_LOL_TAG, 1),
+            forget_arg(help_text::REMOVE_FORGET),
         ])
         .group(tag_arg_group(true))
 }
@@ -357,18 +364,6 @@ fn setup_user_settings_cmd() -> Command<'static> {
         )
 }
 
-fn setup_forget_cmd() -> Command<'static> {
-    Command::new(command_names::FORGET)
-        .about(about_text::FORGET)
-        .version(crate_version!())
-        .args(&[
-            proton_arg(help_text::FORGET_PROTON_TAG, 1),
-            wine_arg(help_text::FORGET_WINE_TAG, 1),
-            lol_arg(help_text::FORGET_WINE_LOL_TAG, 1),
-        ])
-        .group(tag_arg_group(true))
-}
-
 fn setup_clean_cmd() -> Command<'static> {
     Command::new(command_names::CLEAN)
         .about(about_text::CLEAN)
@@ -380,6 +375,7 @@ fn setup_clean_cmd() -> Command<'static> {
             before_arg(help_text::CLEAN_BEFORE_TAG),
             start_arg(help_text::CLEAN_START_TAG),
             end_arg(help_text::CLEAN_END_TAG),
+            forget_arg(help_text::CLEAN_FORGET),
         ])
         .groups(&[
             start_end_tag_range_group(false, &[arg_names::BEFORE]),
@@ -397,6 +393,5 @@ pub fn setup_clap() -> Command<'static> {
         .subcommand(setup_migrate_cmd())
         .subcommand(setup_apply_cmd())
         .subcommand(setup_user_settings_cmd())
-        .subcommand(setup_forget_cmd())
         .subcommand(setup_clean_cmd())
 }

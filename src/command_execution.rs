@@ -11,7 +11,7 @@ use ge_man_lib::tag::TagKind;
 
 use crate::command_input::{
     AddCommandInput, ApplyCommandInput, CheckCommandInput, CleanCommandInput, CopyUserSettingsCommandInput,
-    ForgetCommandInput, GivenVersion, ListCommandInput, MigrationCommandInput, RemoveCommandInput,
+    GivenVersion, ListCommandInput, MigrationCommandInput, RemoveCommandInput,
 };
 use crate::compat_tool_app::ApplicationConfig;
 use crate::data::{ManagedVersion, ManagedVersions};
@@ -330,6 +330,7 @@ impl<'a> CommandHandler<'a> {
             mut managed_versions,
             version_to_remove,
             app_config_path,
+            forget,
         } = input;
 
         let app_config = ApplicationConfig::create_copy(version_to_remove.kind(), &app_config_path);
@@ -352,7 +353,9 @@ impl<'a> CommandHandler<'a> {
             );
         }
 
-        self.fs_mng.remove_version(&version_to_remove).unwrap();
+        if !forget {
+            self.fs_mng.remove_version(&version_to_remove).unwrap();
+        }
         managed_versions.remove(&version_to_remove).unwrap();
         Ok(RemovedAndManagedVersions::single_remove(
             version_to_remove,
@@ -469,23 +472,6 @@ impl<'a> CommandHandler<'a> {
         Ok(())
     }
 
-    pub fn forget(&self, input: ForgetCommandInput) -> anyhow::Result<RemovedAndManagedVersions> {
-        let ForgetCommandInput {
-            version_to_forget,
-            mut managed_versions,
-        } = input;
-
-        let forgotten_version = match managed_versions.remove(version_to_forget.as_ref()) {
-            Some(version) => version,
-            None => bail!("Failed to forget version: Version is not managed"),
-        };
-
-        Ok(RemovedAndManagedVersions::single_remove(
-            forgotten_version,
-            managed_versions,
-        ))
-    }
-
     pub fn clean<S, E>(&self, stderr: &mut impl Write, input: CleanCommandInput<S, E>) -> RemovedAndManagedVersions
     where
         S: Versioned,
@@ -496,6 +482,7 @@ impl<'a> CommandHandler<'a> {
             start_version,
             end_version,
             managed_versions,
+            forget,
         } = input;
 
         let mut removed_versions: ManagedVersions = ManagedVersions::new(Vec::with_capacity(managed_versions.len()));
@@ -521,9 +508,13 @@ impl<'a> CommandHandler<'a> {
             .for_each(|version| {
                 // We remove from a copy -> This can not be a None.
                 let removed_version = remaining_managed_versions.remove(version).unwrap();
-                if let Err(err) = self.fs_mng.remove_version(&removed_version) {
-                    remaining_managed_versions.add(removed_version);
-                    writeln!(stderr, "{}", err).unwrap();
+                if !forget {
+                    if let Err(err) = self.fs_mng.remove_version(&removed_version) {
+                        remaining_managed_versions.add(removed_version);
+                        writeln!(stderr, "{}", err).unwrap();
+                    } else {
+                        removed_versions.push(removed_version);
+                    }
                 } else {
                     removed_versions.push(removed_version);
                 }
@@ -599,45 +590,6 @@ mod tests {
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
         }
-    }
-
-    #[test]
-    fn forget_should_remove_version_from_managed_versions() {
-        let fs_mng = MockFilesystemManager::new();
-        let ge_downloader = MockDownloader::new();
-
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
-
-        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")]);
-        let input = ForgetCommandInput::new(
-            Box::new(Version::new("6.20-GE-1", TagKind::Proton)),
-            managed_versions.clone(),
-        );
-
-        let removed_and_managed_versions = command_handler.forget(input).unwrap();
-        assert!(removed_and_managed_versions.managed_versions.vec_ref().is_empty());
-        assert_eq!(
-            removed_and_managed_versions.removed_versions[0],
-            managed_versions.vec_ref()[0]
-        );
-    }
-
-    #[test]
-    fn forget_should_print_error_message_when_version_does_not_exist() {
-        let fs_mng = MockFilesystemManager::new();
-        let ge_downloader = MockDownloader::new();
-
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
-
-        let input = ForgetCommandInput::new(
-            Box::new(Version::new("6.20-GE-1", TagKind::Proton)),
-            ManagedVersions::default(),
-        );
-        let result = command_handler.forget(input);
-        assert!(result.is_err());
-
-        let err = result.unwrap_err();
-        assert_eq!(err.to_string(), "Failed to forget version: Version is not managed");
     }
 
     #[test]
@@ -977,11 +929,11 @@ mod tests {
             ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6-20-GE-1"),
             ManagedVersion::new("6.21-GE-2", TagKind::Proton, "6-21-GE-2"),
         ]);
-        let input = RemoveCommandInput::new(managed_versions, version_to_remove.clone(), steam_config_path);
+        let input = RemoveCommandInput::new(managed_versions, version_to_remove.clone(), steam_config_path, false);
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
         let removed_and_managed_versions = command_handler.remove(input).unwrap();
-        assert_eq!(removed_and_managed_versions.managed_versions.vec_ref().len(), 1);
+        assert_eq!(removed_and_managed_versions.managed_versions.len(), 1);
         assert_eq!(
             removed_and_managed_versions.managed_versions,
             ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-2", TagKind::Proton, "")])
@@ -1002,7 +954,7 @@ mod tests {
 
         let steam_config_path = PathBuf::from("test_resources/assets/config.vdf");
         let version_to_remove = ManagedVersion::new("6.21-GE-2", TagKind::Proton, "Proton-6.21-GE-2");
-        let input = RemoveCommandInput::new(managed_versions, version_to_remove, steam_config_path);
+        let input = RemoveCommandInput::new(managed_versions, version_to_remove, steam_config_path, false);
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
         let result = command_handler.remove(input);
@@ -1013,6 +965,30 @@ mod tests {
             err.to_string(),
             "Proton GE version is in use. Select a different version to make removal possible"
         );
+    }
+
+    #[test]
+    fn remove_version_with_forget_flag_should_not_delete_from_file_system() {
+        let ge_downloader = MockDownloader::new();
+        let mut fs_mng = MockFilesystemManager::new();
+        fs_mng.expect_remove_version().never();
+
+        let steam_config_path = PathBuf::from("test_resources/assets/config.vdf");
+        let version_to_remove = ManagedVersion::new("6.20-GE-1", TagKind::Proton, "");
+        let managed_versions = ManagedVersions::new(vec![
+            ManagedVersion::new("6.20-GE-1", TagKind::Proton, "6-20-GE-1"),
+            ManagedVersion::new("6.21-GE-2", TagKind::Proton, "6-21-GE-2"),
+        ]);
+        let input = RemoveCommandInput::new(managed_versions, version_to_remove.clone(), steam_config_path, true);
+
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
+        let removed_and_managed_versions = command_handler.remove(input).unwrap();
+        assert_eq!(removed_and_managed_versions.managed_versions.len(), 1);
+        assert_eq!(
+            removed_and_managed_versions.managed_versions,
+            ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-2", TagKind::Proton, "")])
+        );
+        assert_eq!(removed_and_managed_versions.removed_versions[0], version_to_remove)
     }
 
     #[test]
@@ -1330,6 +1306,7 @@ mod tests {
                 ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
                 ManagedVersion::new("6.22-GE-1", TagKind::Proton, ""),
             ]),
+            false,
         );
 
         let removed_and_managed_versions = command_handler.clean(&mut stderr, input);
@@ -1380,6 +1357,7 @@ mod tests {
                 ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
                 ManagedVersion::new("6.22-GE-1", TagKind::Proton, ""),
             ]),
+            false,
         );
 
         let removed_and_managed_versions = command_handler.clean(&mut stderr, input);
@@ -1436,6 +1414,7 @@ mod tests {
                 ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
                 ManagedVersion::new("6.22-GE-1", TagKind::Proton, ""),
             ]),
+            false,
         );
 
         let removed_and_managed_versions = command_handler.clean(&mut stderr, input);
@@ -1456,5 +1435,56 @@ mod tests {
         );
         stderr.assert_count(1);
         stderr.assert_line(0, "Mocked error");
+    }
+
+    #[test]
+    fn clean_with_forget_arg_should_not_delete_from_file_system() {
+        let ge_downloader = MockDownloader::new();
+        let mut fs_mng = MockFilesystemManager::new();
+        fs_mng.expect_remove_version().never();
+
+        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
+
+        let mut stderr = AssertLines::new();
+        let input: CleanCommandInput<Version, Version> = CleanCommandInput::new(
+            None,
+            Some(Version::new("6.19-GE-1", TagKind::Proton)),
+            Some(Version::new("6.22-GE-2", TagKind::Proton)),
+            ManagedVersions::new(vec![
+                ManagedVersion::new("6.20-GE-1", TagKind::lol(), ""),
+                ManagedVersion::new("6.21-GE-1", TagKind::lol(), ""),
+                ManagedVersion::new("6.20-GE-1", TagKind::wine(), ""),
+                ManagedVersion::new("6.21-GE-1", TagKind::wine(), ""),
+                ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
+                ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
+                ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
+                ManagedVersion::new("6.22-GE-1", TagKind::Proton, ""),
+            ]),
+            true,
+        );
+
+        let removed_and_managed_versions = command_handler.clean(&mut stderr, input);
+        stderr.assert_empty();
+        assert_eq!(removed_and_managed_versions.managed_versions.len(), 4);
+        assert_eq!(removed_and_managed_versions.removed_versions.len(), 4);
+        vec![
+            ManagedVersion::new("6.20-GE-1", TagKind::lol(), ""),
+            ManagedVersion::new("6.21-GE-1", TagKind::lol(), ""),
+            ManagedVersion::new("6.20-GE-1", TagKind::wine(), ""),
+            ManagedVersion::new("6.21-GE-1", TagKind::wine(), ""),
+        ]
+        .iter()
+        .for_each(|version| {
+            assert!(removed_and_managed_versions.managed_versions.contains(version));
+        });
+        assert_eq!(
+            removed_and_managed_versions.removed_versions,
+            ManagedVersions::new(vec![
+                ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
+                ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
+                ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
+                ManagedVersion::new("6.22-GE-1", TagKind::Proton, ""),
+            ])
+        );
     }
 }
