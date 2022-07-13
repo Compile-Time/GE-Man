@@ -18,6 +18,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     mind that this flag will display both GE-Man managed and non-managed versions!
 * `clean` command
   * Remove multiple GE Proton or Wine GE versions.
+  * The `--before` (`-b`) flag can be used to remove all versions before a given version.
+  * The `--start` (`-s`) and `--end` (`-e`) flags can be used to remove a range of versions.<br>
+    The start and end versions are excluded from removal.
 
 ### Changed
 
