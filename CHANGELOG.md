@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Removed
+
+* The `forget` command has been removed. In replacement of it the `remove` and `clean` command support
+  a `--forget` (`-f`) flag.<br>
+  The motivation behind this change is that `forget` by itself does too little to merit its existence as a seperate
+  command.
+
 ### Added
 
 * Add the ability to set the Steam installation path via a config file in `$XDG_CONFIG_HOME/ge_man/config.json`. <br>
@@ -21,6 +28,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   * The `--before` (`-b`) flag can be used to remove all versions before a given version.
   * The `--start` (`-s`) and `--end` (`-e`) flags can be used to remove a range of versions.<br>
     The start and end versions are excluded from removal.
+  * The `--forget` (`-f`) flag can be used to forget a version in GE-Man.
 
 ### Changed
 
