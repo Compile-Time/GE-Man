@@ -194,14 +194,14 @@ impl<'a> CommandHandler<'a> {
         if !managed_versions.is_empty() {
             writeln!(stdout, "{}:", tag_kind.compatibility_tool_name()).unwrap();
 
-            managed_versions.sort_unstable_by(|a, b| a.tag().cmp_semver(b.tag()).reverse());
+            managed_versions.sort_unstable_by(|a, b| a.tag().cmp(b.tag()).reverse());
             for version in &managed_versions {
                 let line = match &in_use_directory_name {
                     Some(dir) if dir.eq(version.directory_name()) => {
                         format!("{} - In use by {}", version.tag(), application_name)
                     }
-                    Some(_) => version.tag().value().clone(),
-                    None => version.tag().value().clone(),
+                    Some(_) => version.tag().str().clone(),
+                    None => version.tag().str().clone(),
                 };
                 writeln!(stdout, "* {}", line).unwrap();
             }
@@ -1446,13 +1446,13 @@ mod tests {
         fs_mng
             .expect_remove_version()
             .once()
-            .withf(|version: &ManagedVersion| version.tag().eq("6.20-GE-1"))
+            .withf(|version: &ManagedVersion| version.tag().str().eq("6.20-GE-1"))
             .returning(|_| bail!("Mocked error"));
 
         fs_mng
             .expect_remove_version()
             .once()
-            .withf(|version: &ManagedVersion| version.tag().eq("6.21-GE-1"))
+            .withf(|version: &ManagedVersion| version.tag().str().eq("6.21-GE-1"))
             .returning(|_| Ok(()));
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
@@ -1555,12 +1555,12 @@ mod tests {
         fs_mng
             .expect_remove_version()
             .never()
-            .withf(|version: &ManagedVersion| version.tag().eq("6.20-GE-1"));
+            .withf(|version: &ManagedVersion| version.tag().str().eq("6.20-GE-1"));
 
         fs_mng
             .expect_remove_version()
             .once()
-            .withf(|version: &ManagedVersion| version.tag().eq("6.21-GE-1"))
+            .withf(|version: &ManagedVersion| version.tag().str().eq("6.21-GE-1"))
             .returning(|_| Ok(()));
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);

@@ -31,7 +31,7 @@ impl TagArg {
     }
 
     pub fn value(&self) -> Option<&String> {
-        self.tag.as_ref().map(Tag::value)
+        self.tag.as_ref().map(Tag::str)
     }
 
     pub fn version(&self) -> Version {
