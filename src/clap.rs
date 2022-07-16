@@ -99,309 +99,365 @@ mod help_text {
     pub const CLEAN_START_TAG: &str = "Sets the start tag for range removal";
     pub const CLEAN_END_TAG: &str = "Sets the end tag for range removal";
     pub const CLEAN_FORGET: &str = "Do not remove the versions from the file system, only forget them in GE-Man";
-    pub const CLEAN_DRY_RUN: &str = "Do not perform any actions, only show affected versions.";
+    pub const CLEAN_DRY_RUN: &str = "Do not perform any actions, only show affected versions";
 }
 
-pub mod value_name {
+pub mod value_names {
     pub const TAG: &str = "TAG";
     pub const PATH: &str = "PATH";
 }
 
-fn proton_arg(help_text: &'static str, min_value: usize) -> Arg {
-    Arg::new(arg_names::PROTON_ARG)
-        .short('p')
-        .long(arg_names::PROTON_ARG)
-        .help(help_text)
-        .display_order(1)
-        .takes_value(true)
-        .value_name(value_name::TAG)
-        .min_values(min_value)
-        .max_values(1)
-        .multiple_values(false)
+mod group {
+    use super::*;
+
+    pub fn start_end_range(required: bool, conflicts: &[&'static str]) -> ArgGroup<'static> {
+        ArgGroup::new(arg_group_names::START_END_RANGE)
+            .args(&[arg_names::START, arg_names::END])
+            .required(required)
+            .multiple(true)
+            .requires_all(&[arg_names::START, arg_names::END])
+            .conflicts_with_all(conflicts)
+    }
+
+    pub fn before_and_start_end(required: bool) -> ArgGroup<'static> {
+        ArgGroup::new(arg_group_names::BEFORE_START_END)
+            .args(&[arg_names::START, arg_names::END, arg_names::BEFORE])
+            .required(required)
+            .multiple(true)
+    }
+
+    pub fn tag_args(required: bool) -> ArgGroup<'static> {
+        ArgGroup::new(arg_group_names::TAG)
+            .args(&[arg_names::PROTON_ARG, arg_names::WINE_ARG, arg_names::LOL_ARG])
+            .required(required)
+    }
 }
 
-fn wine_arg(help_text: &'static str, min_value: usize) -> Arg {
-    Arg::new(arg_names::WINE_ARG)
-        .short('w')
-        .long(arg_names::WINE_ARG)
-        .help(help_text)
-        .display_order(1)
-        .takes_value(true)
-        .value_name(value_name::TAG)
-        .min_values(min_value)
-        .max_values(1)
-        .multiple_values(false)
-}
+mod arg {
+    use super::*;
 
-fn lol_arg(help_text: &'static str, min_value: usize) -> Arg {
-    Arg::new(arg_names::LOL_ARG)
-        .short('l')
-        .long(arg_names::LOL_ARG)
-        .help(help_text)
-        .display_order(1)
-        .takes_value(true)
-        .value_name(value_name::TAG)
-        .min_values(min_value)
-        .max_values(1)
-        .multiple_values(false)
-}
+    pub mod proton {
+        use super::*;
 
-fn newest_arg(help_text: &'static str) -> Arg {
-    Arg::new(arg_names::NEWEST_ARG)
-        .short('n')
-        .long(arg_names::NEWEST_ARG)
-        .display_order(2)
-        .help(help_text)
-}
+        pub fn flag(help_text: &'static str, display_order: usize) -> Arg {
+            Arg::new(arg_names::PROTON_ARG)
+                .short('p')
+                .long(arg_names::PROTON_ARG)
+                .help(help_text)
+                .display_order(display_order)
+                .takes_value(false)
+        }
 
-fn skip_checksum_arg(help_text: &'static str) -> Arg {
-    Arg::new(arg_names::SKIP_CHECKSUM_ARG)
-        .long(arg_names::SKIP_CHECKSUM_ARG)
-        .display_order(2)
-        .help(help_text)
-}
-
-fn apply_arg(help_text: &'static str) -> Arg {
-    Arg::new(arg_names::APPLY_ARG)
-        .long(arg_names::APPLY_ARG)
-        .display_order(2)
-        .help(help_text)
-}
-
-fn tag_arg_group(required: bool) -> ArgGroup<'static> {
-    ArgGroup::new(arg_group_names::TAG)
-        .args(&[arg_names::PROTON_ARG, arg_names::WINE_ARG, arg_names::LOL_ARG])
-        .required(required)
-}
-
-fn file_system_arg(help_text: &'static str) -> Arg {
-    Arg::new(arg_names::FILE_SYSTEM)
-        .short('f')
-        .long(arg_names::FILE_SYSTEM)
-        .display_order(2)
-        .help(help_text)
-}
-
-fn before_arg(help_text: &'static str) -> Arg {
-    Arg::new(arg_names::BEFORE)
-        .short('b')
-        .long(arg_names::BEFORE)
-        .display_order(2)
-        .help(help_text)
-        .takes_value(true)
-        .value_name(value_name::TAG)
-        .min_values(1)
-        .max_values(1)
-        .multiple_values(false)
-}
-
-fn start_arg(help_text: &'static str) -> Arg {
-    Arg::new(arg_names::START)
-        .short('s')
-        .long(arg_names::START)
-        .display_order(2)
-        .help(help_text)
-        .takes_value(true)
-        .value_name(value_name::TAG)
-        .min_values(1)
-        .max_values(1)
-        .multiple_values(false)
-}
-
-fn end_arg(help_text: &'static str) -> Arg {
-    Arg::new(arg_names::END)
-        .short('e')
-        .long(arg_names::END)
-        .display_order(2)
-        .help(help_text)
-        .takes_value(true)
-        .value_name(value_name::TAG)
-        .min_values(1)
-        .max_values(1)
-        .multiple_values(false)
-}
-
-fn forget_arg(help_text: &'static str) -> Arg {
-    Arg::new(arg_names::FORGET)
-        .short('f')
-        .long(arg_names::FORGET)
-        .display_order(2)
-        .help(help_text)
-}
-
-fn start_end_tag_range_group(required: bool, conflicts: &[&'static str]) -> ArgGroup<'static> {
-    ArgGroup::new(arg_group_names::START_END_RANGE)
-        .args(&[arg_names::START, arg_names::END])
-        .required(required)
-        .multiple(true)
-        .requires_all(&[arg_names::START, arg_names::END])
-        .conflicts_with_all(conflicts)
-}
-
-fn before_start_end_group(required: bool) -> ArgGroup<'static> {
-    ArgGroup::new(arg_group_names::BEFORE_START_END)
-        .args(&[arg_names::START, arg_names::END, arg_names::BEFORE])
-        .required(required)
-        .multiple(true)
-}
-
-fn dry_run_arg(help_text: &'static str) -> Arg {
-    Arg::new(arg_names::DRY_RUN)
-        .long(arg_names::DRY_RUN)
-        .display_order(2)
-        .help(help_text)
-}
-
-fn setup_list_cmd() -> Command<'static> {
-    Command::new(command_names::LIST)
-        .about(about_text::LIST)
-        .version(crate_version!())
-        .args(&[
-            proton_arg(help_text::LIST_PROTON_TAG, 0).takes_value(false),
-            wine_arg(help_text::LIST_WINE_TAG, 0).takes_value(false),
-            lol_arg(help_text::LIST_WINE_LOL_TAG, 0).takes_value(false),
-            newest_arg(help_text::LIST_NEWEST),
-            file_system_arg(help_text::LIST_FILE_SYSTEM),
-        ])
-}
-
-fn setup_add_cmd() -> Command<'static> {
-    Command::new(command_names::ADD)
-        .about(about_text::ADD)
-        .version(crate_version!())
-        .args(&[
-            proton_arg(help_text::ADD_PROTON_TAG, 0),
-            wine_arg(help_text::ADD_WINE_TAG, 0),
-            lol_arg(help_text::ADD_WINE_LOL_TAG, 0),
-            skip_checksum_arg(help_text::ADD_SKIP_CHECKSUM),
-            apply_arg(help_text::ADD_APPLY),
-        ])
-        .group(tag_arg_group(true))
-}
-
-fn setup_rm_cmd() -> Command<'static> {
-    Command::new(command_names::REMOVE)
-        .about(about_text::REMOVE)
-        .version(crate_version!())
-        .alias("rm")
-        .args(&[
-            proton_arg(help_text::REMOVE_PROTON_TAG, 1),
-            wine_arg(help_text::REMOVE_WINE_TAG, 1),
-            lol_arg(help_text::REMOVE_WINE_LOL_TAG, 1),
-            forget_arg(help_text::REMOVE_FORGET),
-        ])
-        .group(tag_arg_group(true))
-}
-
-fn setup_check_cmd() -> Command<'static> {
-    Command::new(command_names::CHECK)
-        .about(about_text::CHECK)
-        .version(crate_version!())
-        .alias("ck")
-        .args(&[
-            proton_arg(help_text::CHECK_PROTON_TAG, 0).takes_value(false),
-            wine_arg(help_text::CHECK_WINE_TAG, 0).takes_value(false),
-            lol_arg(help_text::CHECK_WINE_LOL_TAG, 0).takes_value(false),
-        ])
-        .group(tag_arg_group(false))
-}
-
-fn setup_migrate_cmd() -> Command<'static> {
-    Command::new(command_names::MIGRATE)
-        .about(about_text::MIGRATE)
-        .version(crate_version!())
-        .alias("mg")
-        .args(&[
-            proton_arg(help_text::MIGRATE_PROTON_TAG, 1),
-            wine_arg(help_text::MIGRATE_WINE_TAG, 1),
-            lol_arg(help_text::MIGRATE_WINE_LOL_TAG, 1),
-        ])
-        .arg(
-            Arg::new(arg_names::SOURCE_ARG)
-                .short('s')
-                .long(arg_names::SOURCE_ARG)
-                .help(help_text::MIGRATE_SOURCE)
-                .required(true)
+        pub fn with_value(help_text: &'static str, min_value: usize, display_order: usize) -> Arg {
+            Arg::new(arg_names::PROTON_ARG)
+                .short('p')
+                .long(arg_names::PROTON_ARG)
+                .help(help_text)
+                .display_order(display_order)
                 .takes_value(true)
-                .display_order(1)
-                .value_name(value_name::PATH),
-        )
-        .group(tag_arg_group(true))
+                .value_name(value_names::TAG)
+                .min_values(min_value)
+                .max_values(1)
+                .multiple_values(false)
+        }
+    }
+
+    pub mod wine {
+        use super::*;
+
+        pub fn flag(help_text: &'static str, display_order: usize) -> Arg {
+            Arg::new(arg_names::WINE_ARG)
+                .short('w')
+                .long(arg_names::WINE_ARG)
+                .help(help_text)
+                .display_order(display_order)
+                .takes_value(false)
+        }
+
+        pub fn with_value(help_text: &'static str, min_value: usize, display_order: usize) -> Arg {
+            Arg::new(arg_names::WINE_ARG)
+                .short('w')
+                .long(arg_names::WINE_ARG)
+                .help(help_text)
+                .display_order(display_order)
+                .takes_value(true)
+                .value_name(value_names::TAG)
+                .min_values(min_value)
+                .max_values(1)
+                .multiple_values(false)
+        }
+    }
+
+    pub mod lol {
+        use super::*;
+
+        pub fn flag(help_text: &'static str, display_order: usize) -> Arg {
+            Arg::new(arg_names::LOL_ARG)
+                .short('l')
+                .long(arg_names::LOL_ARG)
+                .help(help_text)
+                .display_order(display_order)
+                .takes_value(false)
+        }
+
+        pub fn with_value(help_text: &'static str, min_value: usize, display_order: usize) -> Arg {
+            Arg::new(arg_names::LOL_ARG)
+                .short('l')
+                .long(arg_names::LOL_ARG)
+                .help(help_text)
+                .display_order(display_order)
+                .takes_value(true)
+                .value_name(value_names::TAG)
+                .min_values(min_value)
+                .max_values(1)
+                .multiple_values(false)
+        }
+    }
+
+    pub fn newest(help_text: &'static str, display_order: usize) -> Arg {
+        Arg::new(arg_names::NEWEST_ARG)
+            .short('n')
+            .long(arg_names::NEWEST_ARG)
+            .display_order(display_order)
+            .help(help_text)
+    }
+
+    pub fn skip_checksum(help_text: &'static str, display_order: usize) -> Arg {
+        Arg::new(arg_names::SKIP_CHECKSUM_ARG)
+            .long(arg_names::SKIP_CHECKSUM_ARG)
+            .display_order(display_order)
+            .help(help_text)
+    }
+
+    pub fn apply(help_text: &'static str, display_order: usize) -> Arg {
+        Arg::new(arg_names::APPLY_ARG)
+            .long(arg_names::APPLY_ARG)
+            .display_order(display_order)
+            .help(help_text)
+    }
+
+    pub fn file_system(help_text: &'static str, display_order: usize) -> Arg {
+        Arg::new(arg_names::FILE_SYSTEM)
+            .short('f')
+            .long(arg_names::FILE_SYSTEM)
+            .display_order(display_order)
+            .help(help_text)
+    }
+
+    pub fn before(help_text: &'static str, display_order: usize) -> Arg {
+        Arg::new(arg_names::BEFORE)
+            .short('b')
+            .long(arg_names::BEFORE)
+            .display_order(display_order)
+            .help(help_text)
+            .takes_value(true)
+            .value_name(value_names::TAG)
+            .min_values(1)
+            .max_values(1)
+            .multiple_values(false)
+    }
+
+    pub fn start(help_text: &'static str, display_order: usize) -> Arg {
+        Arg::new(arg_names::START)
+            .short('s')
+            .long(arg_names::START)
+            .display_order(display_order)
+            .help(help_text)
+            .takes_value(true)
+            .value_name(value_names::TAG)
+            .min_values(1)
+            .max_values(1)
+            .multiple_values(false)
+    }
+
+    pub fn end(help_text: &'static str, display_order: usize) -> Arg {
+        Arg::new(arg_names::END)
+            .short('e')
+            .long(arg_names::END)
+            .display_order(display_order)
+            .help(help_text)
+            .takes_value(true)
+            .value_name(value_names::TAG)
+            .min_values(1)
+            .max_values(1)
+            .multiple_values(false)
+    }
+
+    pub fn forget(help_text: &'static str, display_order: usize) -> Arg {
+        Arg::new(arg_names::FORGET)
+            .short('f')
+            .long(arg_names::FORGET)
+            .display_order(display_order)
+            .help(help_text)
+    }
+
+    pub fn dry_run(help_text: &'static str, display_order: usize) -> Arg {
+        Arg::new(arg_names::DRY_RUN)
+            .long(arg_names::DRY_RUN)
+            .display_order(display_order)
+            .help(help_text)
+    }
+
+    pub fn source(help_text: &'static str, display_order: usize) -> Arg {
+        Arg::new(arg_names::SOURCE_ARG)
+            .short('s')
+            .long(arg_names::SOURCE_ARG)
+            .help(help_text)
+            .takes_value(true)
+            .required(true)
+            .display_order(display_order)
+            .value_name(value_names::TAG)
+    }
+
+    pub fn destination(help_text: &'static str, display_order: usize) -> Arg {
+        Arg::new(arg_names::DESTINATION_ARG)
+            .short('d')
+            .long(arg_names::DESTINATION_ARG)
+            .help(help_text)
+            .takes_value(true)
+            .required(true)
+            .display_order(display_order)
+            .value_name(value_names::TAG)
+    }
 }
 
-fn setup_apply_cmd() -> Command<'static> {
-    Command::new(command_names::APPLY)
-        .about(about_text::APPLY)
-        .version(crate_version!())
-        .args(&[
-            proton_arg(help_text::APPLY_PROTON_TAG, 1),
-            wine_arg(help_text::APPLY_WINE_TAG, 1),
-            lol_arg(help_text::APPLY_WINE_LOL_TAG, 1),
-        ])
-        .group(tag_arg_group(true))
-}
+mod cmd {
+    use super::*;
 
-fn setup_user_settings_cmd() -> Command<'static> {
-    Command::new(command_names::PROTON_USER_SETTINGS)
-        .about(about_text::USER_SETTINGS)
-        .version(crate_version!())
-        .alias("us")
-        .subcommand_required(true)
-        .subcommand(
-            Command::new(command_names::USER_SETTINGS_COPY)
-                .about(about_text::USER_SETTINGS_COPY)
-                .arg(
-                    Arg::new(arg_names::SOURCE_ARG)
-                        .short('s')
-                        .long(arg_names::SOURCE_ARG)
-                        .help(help_text::USER_SETTINGS_COPY_SOURCE)
-                        .takes_value(true)
-                        .required(true)
-                        .display_order(1)
-                        .value_name(value_name::TAG),
-                )
-                .arg(
-                    Arg::new(arg_names::DESTINATION_ARG)
-                        .short('d')
-                        .long(arg_names::DESTINATION_ARG)
-                        .help(help_text::USER_SETTINGS_COPY_DESTINATION)
-                        .takes_value(true)
-                        .required(true)
-                        .display_order(1)
-                        .value_name(value_name::TAG),
-                ),
-        )
-}
+    pub fn list() -> Command<'static> {
+        Command::new(command_names::LIST)
+            .about(about_text::LIST)
+            .version(crate_version!())
+            .args(&[
+                arg::proton::flag(help_text::LIST_PROTON_TAG, 1),
+                arg::wine::flag(help_text::LIST_WINE_TAG, 1),
+                arg::lol::flag(help_text::LIST_WINE_LOL_TAG, 1),
+                arg::newest(help_text::LIST_NEWEST, 2),
+                arg::file_system(help_text::LIST_FILE_SYSTEM, 2),
+            ])
+    }
 
-fn setup_clean_cmd() -> Command<'static> {
-    Command::new(command_names::CLEAN)
-        .about(about_text::CLEAN)
-        .version(crate_version!())
-        .args(&[
-            proton_arg(help_text::CLEAN_PROTON_TAG, 0),
-            wine_arg(help_text::CLEAN_WINE_TAG, 0),
-            lol_arg(help_text::CLEAN_WINE_LOL_TAG, 0),
-            before_arg(help_text::CLEAN_BEFORE_TAG),
-            start_arg(help_text::CLEAN_START_TAG),
-            end_arg(help_text::CLEAN_END_TAG),
-            forget_arg(help_text::CLEAN_FORGET),
-            dry_run_arg(help_text::CLEAN_DRY_RUN),
-        ])
-        .groups(&[
-            start_end_tag_range_group(false, &[arg_names::BEFORE]),
-            before_start_end_group(true),
-        ])
+    pub fn add() -> Command<'static> {
+        Command::new(command_names::ADD)
+            .about(about_text::ADD)
+            .version(crate_version!())
+            .args(&[
+                arg::proton::with_value(help_text::ADD_PROTON_TAG, 0, 1),
+                arg::wine::with_value(help_text::ADD_WINE_TAG, 0, 1),
+                arg::lol::with_value(help_text::ADD_WINE_LOL_TAG, 0, 1),
+                arg::skip_checksum(help_text::ADD_SKIP_CHECKSUM, 2),
+                arg::apply(help_text::ADD_APPLY, 2),
+            ])
+            .group(group::tag_args(true))
+    }
+
+    pub fn remove() -> Command<'static> {
+        Command::new(command_names::REMOVE)
+            .about(about_text::REMOVE)
+            .version(crate_version!())
+            .alias("rm")
+            .args(&[
+                arg::proton::with_value(help_text::REMOVE_PROTON_TAG, 1, 1),
+                arg::wine::with_value(help_text::REMOVE_WINE_TAG, 1, 1),
+                arg::lol::with_value(help_text::REMOVE_WINE_LOL_TAG, 1, 1),
+                arg::forget(help_text::REMOVE_FORGET, 2),
+            ])
+            .group(group::tag_args(true))
+    }
+
+    pub fn check() -> Command<'static> {
+        Command::new(command_names::CHECK)
+            .about(about_text::CHECK)
+            .version(crate_version!())
+            .alias("ck")
+            .args(&[
+                arg::proton::flag(help_text::CHECK_PROTON_TAG, 1),
+                arg::wine::flag(help_text::CHECK_WINE_TAG, 1),
+                arg::lol::flag(help_text::CHECK_WINE_LOL_TAG, 1),
+            ])
+            .group(group::tag_args(false))
+    }
+
+    pub fn migrate() -> Command<'static> {
+        Command::new(command_names::MIGRATE)
+            .about(about_text::MIGRATE)
+            .version(crate_version!())
+            .alias("mg")
+            .args(&[
+                arg::proton::with_value(help_text::MIGRATE_PROTON_TAG, 1, 1),
+                arg::wine::with_value(help_text::MIGRATE_WINE_TAG, 1, 1),
+                arg::lol::with_value(help_text::MIGRATE_WINE_LOL_TAG, 1, 1),
+            ])
+            .arg(
+                Arg::new(arg_names::SOURCE_ARG)
+                    .short('s')
+                    .long(arg_names::SOURCE_ARG)
+                    .help(help_text::MIGRATE_SOURCE)
+                    .required(true)
+                    .takes_value(true)
+                    .display_order(1)
+                    .value_name(value_names::PATH),
+            )
+            .group(group::tag_args(true))
+    }
+
+    pub fn apply() -> Command<'static> {
+        Command::new(command_names::APPLY)
+            .about(about_text::APPLY)
+            .version(crate_version!())
+            .args(&[
+                arg::proton::with_value(help_text::APPLY_PROTON_TAG, 1, 1),
+                arg::wine::with_value(help_text::APPLY_WINE_TAG, 1, 1),
+                arg::lol::with_value(help_text::APPLY_WINE_LOL_TAG, 1, 1),
+            ])
+            .group(group::tag_args(true))
+    }
+
+    pub fn user_settings() -> Command<'static> {
+        Command::new(command_names::PROTON_USER_SETTINGS)
+            .about(about_text::USER_SETTINGS)
+            .version(crate_version!())
+            .alias("us")
+            .subcommand_required(true)
+            .subcommand(
+                Command::new(command_names::USER_SETTINGS_COPY)
+                    .about(about_text::USER_SETTINGS_COPY)
+                    .arg(arg::source(help_text::USER_SETTINGS_COPY_SOURCE, 1))
+                    .arg(arg::destination(help_text::USER_SETTINGS_COPY_DESTINATION, 1)),
+            )
+    }
+
+    pub fn clean() -> Command<'static> {
+        Command::new(command_names::CLEAN)
+            .about(about_text::CLEAN)
+            .version(crate_version!())
+            .args(&[
+                arg::proton::flag(help_text::CLEAN_PROTON_TAG, 1),
+                arg::wine::flag(help_text::CLEAN_WINE_TAG, 1),
+                arg::lol::flag(help_text::CLEAN_WINE_LOL_TAG, 1),
+                arg::before(help_text::CLEAN_BEFORE_TAG, 2),
+                arg::start(help_text::CLEAN_START_TAG, 2),
+                arg::end(help_text::CLEAN_END_TAG, 2),
+                arg::forget(help_text::CLEAN_FORGET, 3),
+                arg::dry_run(help_text::CLEAN_DRY_RUN, 3),
+            ])
+            .groups(&[
+                group::tag_args(true),
+                group::start_end_range(false, &[arg_names::BEFORE]),
+                group::before_and_start_end(true),
+            ])
+    }
 }
 
 pub fn setup_clap() -> Command<'static> {
     command!()
         .subcommand_required(true)
-        .subcommand(setup_list_cmd())
-        .subcommand(setup_add_cmd())
-        .subcommand(setup_rm_cmd())
-        .subcommand(setup_check_cmd())
-        .subcommand(setup_migrate_cmd())
-        .subcommand(setup_apply_cmd())
-        .subcommand(setup_user_settings_cmd())
-        .subcommand(setup_clean_cmd())
+        .subcommand(cmd::list())
+        .subcommand(cmd::add())
+        .subcommand(cmd::remove())
+        .subcommand(cmd::check())
+        .subcommand(cmd::migrate())
+        .subcommand(cmd::apply())
+        .subcommand(cmd::user_settings())
+        .subcommand(cmd::clean())
 }
