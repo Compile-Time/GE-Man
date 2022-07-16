@@ -122,7 +122,7 @@ impl ListCommandInput {
             let in_use_directory_name = filesystem::in_use_compat_tool_dir_name(&app_config_file, kind).ok();
 
             let mut managed_versions = managed_versions.clone();
-            managed_versions.vec_mut().retain(|version| version.kind().eq(&kind));
+            managed_versions.retain(|version| version.kind().eq(&kind));
             let app_name = application_name(&kind);
             let app_compat_tool_dir = path_cfg.application_compatibility_tools_dir(kind);
 

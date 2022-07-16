@@ -156,6 +156,10 @@ impl ManagedVersions {
         ManagedVersions { versions: items }
     }
 
+    pub fn with_capacity(size: usize) -> Self {
+        ManagedVersions::new(Vec::with_capacity(size))
+    }
+
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
         let managed_versions = match fs::read_to_string(path) {
             Ok(json) => serde_json::from_str(&json)?,
@@ -191,11 +195,6 @@ impl ManagedVersions {
             .cloned()
     }
 
-    pub fn add(&mut self, version: ManagedVersion) -> ManagedVersion {
-        self.versions.push(version.clone());
-        version
-    }
-
     pub fn remove(&mut self, version: &dyn Versioned) -> Option<ManagedVersion> {
         match self.get_version_index(version) {
             Some(index) => Some(self.versions.swap_remove(index)),
@@ -208,9 +207,9 @@ impl ManagedVersions {
             .and_then(|index| self.versions.get(index).cloned())
     }
 
-    pub fn latest_versions(&self) -> Vec<ManagedVersion> {
+    pub fn latest_versions(&self) -> ManagedVersions {
         let kinds = TagKind::values();
-        let mut versions = Vec::with_capacity(kinds.len());
+        let mut versions = ManagedVersions::with_capacity(kinds.len());
         for kind in &kinds {
             if let Some(v) = self.find_latest_by_kind(kind) {
                 versions.push(v);
@@ -243,14 +242,6 @@ impl ManagedVersions {
             .filter(|version| version.kind.eq(before.kind()))
             .filter(|version| version.lt(&before))
             .collect()
-    }
-
-    pub fn vec_mut(&mut self) -> &mut Vec<ManagedVersion> {
-        &mut self.versions
-    }
-
-    pub fn vec_ref(&self) -> &Vec<ManagedVersion> {
-        &self.versions
     }
 }
 
@@ -427,11 +418,11 @@ mod managed_versions_tests {
 
         assert_eq!(
             result,
-            vec![
+            ManagedVersions::new(vec![
                 ManagedVersion::new(Tag::from("6.20-GE-1"), TagKind::Proton, String::new()),
                 ManagedVersion::new(Tag::from("6.20-GE-1"), TagKind::wine(), String::new()),
                 ManagedVersion::new(Tag::from("6.16-GE-3-LoL"), TagKind::lol(), String::new()),
-            ]
+            ])
         );
     }
 
@@ -439,7 +430,7 @@ mod managed_versions_tests {
     fn add() {
         let mut managed_versions = ManagedVersions::default();
         let version = ManagedVersion::from(Version::proton("6.20-GE-1"));
-        managed_versions.add(version);
+        managed_versions.push(version);
         assert!(managed_versions.find_version(&Version::proton("6.20-GE-1")).is_some());
     }
 
@@ -449,7 +440,7 @@ mod managed_versions_tests {
         let mut managed_versions = ManagedVersions::new(vec![version]);
         managed_versions.remove(&Version::proton("6.20-GE-1")).unwrap();
         assert!(!managed_versions.find_version(&Version::proton("6.20-GE-1")).is_some());
-        assert!(managed_versions.vec_mut().is_empty());
+        assert!(managed_versions.is_empty());
     }
 
     #[test]

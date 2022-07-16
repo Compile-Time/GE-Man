@@ -188,7 +188,7 @@ impl<'a> CommandHandler<'a> {
         let mut managed_versions = if newest {
             managed_versions.latest_versions()
         } else {
-            managed_versions.vec_ref().clone()
+            managed_versions.clone()
         };
 
         if !managed_versions.is_empty() {
@@ -321,8 +321,8 @@ impl<'a> CommandHandler<'a> {
             .context("Could not add version")?;
         extraction_tracker.finish();
 
-        let new_version = managed_versions.add(version);
-        Ok(NewAndManagedVersions::single_add(new_version, managed_versions))
+        managed_versions.push(version.clone());
+        Ok(NewAndManagedVersions::single_add(version, managed_versions))
     }
 
     fn remove_version(
@@ -432,7 +432,7 @@ impl<'a> CommandHandler<'a> {
             .migrate_folder(version, &source_path)
             .context("Could not migrate directory")?;
 
-        let version = managed_versions.add(version);
+        managed_versions.push(version.clone());
         Ok(NewAndManagedVersions::single_add(version, managed_versions))
     }
 
@@ -1159,8 +1159,8 @@ mod tests {
         let new_and_managed_versions = command_handler.migrate(input).unwrap();
 
         let expected_version = ManagedVersion::new("6.20-GE-1", TagKind::Proton, "Proton-6.20-GE-1");
-        assert_eq!(new_and_managed_versions.managed_versions.vec_ref().len(), 1);
-        assert_eq!(new_and_managed_versions.managed_versions.vec_ref()[0], expected_version);
+        assert_eq!(new_and_managed_versions.managed_versions.len(), 1);
+        assert_eq!(new_and_managed_versions.managed_versions[0], expected_version);
         assert_eq!(new_and_managed_versions.new_versions[0], expected_version);
     }
 
