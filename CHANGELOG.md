@@ -7,12 +7,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
-### Removed
+### Changed
 
-* The `forget` command has been removed. In replacement of it the `remove` and `clean` command support
-  a `--forget` (`-f`) flag.<br>
-  The motivation behind this change is that `forget` by itself does too little to merit its existence as a seperate
-  command.
+* Show the file name of the to-be-downloaded archive during download.
+
+* Technical:
+  * Renamed `TerminalWriter` to `CommandHandler` to better represent its purpose.
+  * Renamed to `ui` module to `command_execution`.
+  * Renamed the `args` module to `command_input`.
+  * Refactored the interaction with the `CommandHandler` to be more input/output focused.
 
 ### Added
 
@@ -29,16 +32,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   * The `--start` (`-s`) and `--end` (`-e`) flags can be used to remove a range of versions.<br>
     The start and end versions are excluded from removal.
   * The `--forget` (`-f`) flag can be used to forget a version in GE-Man.
+  * The `--dry-run` flag can be used to see which versions would be removed.
 
-### Changed
+### Removed
 
-* Show the file name of the to-be-downloaded archive during download.
-
-* Technical:
-  * Renamed `TerminalWriter` to `CommandHandler` to better represent its purpose
-  * Renamed to `ui` module to `command_execution`
-  * Renamed the `args` module to `command_input`
-  * Refactored the interaction with the `CommandHandler` to be more input/output focused
+* The `forget` command has been removed. In replacement of it the `remove` and `clean` command support
+  a `--forget` (`-f`) flag.<br>
+  The motivation behind this change is that `forget` by itself does too little to merit its existence as a separate
+  command.
 
 ## [0.1.2] - 2022-06-17
 
