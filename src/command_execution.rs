@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;
@@ -194,15 +195,14 @@ impl<'a> CommandHandler<'a> {
         if !managed_versions.is_empty() {
             writeln!(stdout, "{}:", tag_kind.compatibility_tool_name()).unwrap();
 
-            managed_versions.sort_unstable_by(|a, b| a.tag().cmp(b.tag()).reverse());
+            managed_versions.sort_unstable_by(|a, b| a.tag().cmp(b.tag()));
             for version in &managed_versions {
-                let line = match &in_use_directory_name {
-                    Some(dir) if dir.eq(version.directory_name()) => {
-                        format!("{} - In use by {}", version.tag(), application_name)
-                    }
-                    Some(_) => version.tag().str().clone(),
-                    None => version.tag().str().clone(),
-                };
+                let line = self.list_line_string(
+                    in_use_directory_name.as_ref(),
+                    version.tag().str(),
+                    version.directory_name(),
+                    &application_name,
+                );
                 writeln!(stdout, "* {}", line).unwrap();
             }
         } else {
@@ -224,20 +224,39 @@ impl<'a> CommandHandler<'a> {
 
         writeln!(stdout, "{}:", kind.compatibility_tool_name()).unwrap();
         let mut paths = self.fs_mng.paths_for_directory_items(&app_compat_tool_dir)?;
-        paths.sort_unstable_by(|a, b| a.file_name().cmp(&b.file_name()).reverse());
+        paths.sort_unstable_by(|a, b| {
+            a.file_name()
+                .map(OsStr::to_ascii_lowercase)
+                .cmp(&b.file_name().map(OsStr::to_ascii_lowercase))
+        });
         for path in paths {
             let file_name = path.file_name().map(|os_str| os_str.to_string_lossy()).unwrap();
-            let line = match &in_use_directory_name {
-                Some(in_use_dir) if in_use_dir.eq(&file_name) => {
-                    format!("{} - In use by {}", path.display(), app_name)
-                }
-                Some(_) => path.display().to_string(),
-                None => path.display().to_string(),
-            };
+            let line = self.list_line_string(
+                in_use_directory_name.as_ref(),
+                path.to_string_lossy().as_ref(),
+                file_name.as_ref(),
+                &app_name,
+            );
             writeln!(stdout, "* {}", line).unwrap();
         }
 
         Ok(())
+    }
+
+    fn list_line_string(
+        &self,
+        in_use_directory_name: Option<&String>,
+        version_or_path: &str,
+        version_directory_name: &str,
+        app_name: &str,
+    ) -> String {
+        match in_use_directory_name {
+            Some(in_use_dir) if in_use_dir.eq(&version_directory_name) => {
+                format!("{} - In use by {}", version_or_path, app_name)
+            }
+            Some(_) => version_or_path.to_string(),
+            None => version_or_path.to_string(),
+        }
     }
 
     pub fn add(&self, stdout: &mut impl Write, input: AddCommandInput) -> anyhow::Result<NewAndManagedVersions> {
@@ -726,9 +745,9 @@ mod tests {
 
         stdout.assert_count(4);
         stdout.assert_line(0, "Proton GE:");
-        stdout.assert_line(1, "* GE-Proton7-22");
+        stdout.assert_line(1, "* 6.20-GE-1");
         stdout.assert_line(2, "* 6.21-GE-1");
-        stdout.assert_line(3, "* 6.20-GE-1");
+        stdout.assert_line(3, "* GE-Proton7-22");
     }
 
     #[test]
@@ -757,9 +776,9 @@ mod tests {
 
         stdout.assert_count(4);
         stdout.assert_line(0, "Proton GE:");
-        stdout.assert_line(1, "* GE-Proton7-22 - In use by Steam");
+        stdout.assert_line(1, "* 6.20-GE-1");
         stdout.assert_line(2, "* 6.21-GE-1");
-        stdout.assert_line(3, "* 6.20-GE-1");
+        stdout.assert_line(3, "* GE-Proton7-22 - In use by Steam");
     }
 
     #[test]
@@ -791,9 +810,9 @@ mod tests {
 
         stdout.assert_count(4);
         stdout.assert_line(0, "Proton GE:");
-        stdout.assert_line(1, "* /tmp/test/Proton-6.21-GE-2");
+        stdout.assert_line(1, "* /tmp/test/Proton-6.20-GE-1");
         stdout.assert_line(2, "* /tmp/test/Proton-6.21-GE-1");
-        stdout.assert_line(3, "* /tmp/test/Proton-6.20-GE-1");
+        stdout.assert_line(3, "* /tmp/test/Proton-6.21-GE-2");
     }
 
     #[test]
@@ -825,9 +844,9 @@ mod tests {
 
         stdout.assert_count(4);
         stdout.assert_line(0, "Proton GE:");
-        stdout.assert_line(1, "* /tmp/test/Proton-6.21-GE-2");
+        stdout.assert_line(1, "* /tmp/test/Proton-6.20-GE-1");
         stdout.assert_line(2, "* /tmp/test/Proton-6.21-GE-1 - In use by Steam");
-        stdout.assert_line(3, "* /tmp/test/Proton-6.20-GE-1");
+        stdout.assert_line(3, "* /tmp/test/Proton-6.21-GE-2");
     }
 
     #[test]

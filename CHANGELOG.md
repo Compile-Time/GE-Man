@@ -10,6 +10,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 * Show the file name of the to-be-downloaded archive during download.
+* Output list content in ascending order.
 
 * Technical:
   * Renamed `TerminalWriter` to `CommandHandler` to better represent its purpose.
