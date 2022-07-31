@@ -267,7 +267,7 @@ impl<'a> CommandHandler<'a> {
         } = input;
 
         let version = match version {
-            GivenVersion::Explicit { version: versioned } => Version::from(versioned),
+            GivenVersion::Explicit { version } => version,
             GivenVersion::Latest { kind } => match self.ge_downloader.fetch_release(None, kind) {
                 Ok(release) => Version::new(release.tag_name, kind),
                 Err(err) => {
@@ -456,21 +456,7 @@ impl<'a> CommandHandler<'a> {
     }
 
     pub fn apply(&self, stdout: &mut impl Write, input: ApplyCommandInput) -> anyhow::Result<()> {
-        let ApplyCommandInput {
-            version,
-            managed_versions,
-        } = input;
-
-        let version = match version {
-            GivenVersion::Explicit { version } => match managed_versions.find_version(version.as_ref()) {
-                Some(v) => v,
-                None => bail!("Given version is not managed"),
-            },
-            GivenVersion::Latest { kind } => match managed_versions.find_latest_by_kind(&kind) {
-                Some(v) => v,
-                None => bail!("No managed versions exist"),
-            },
-        };
+        let version = input.version;
 
         writeln!(stdout, "{}", message::apply::modifying_config(&version)).unwrap();
 
@@ -873,13 +859,7 @@ mod tests {
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
         let managed_versions = ManagedVersions::new(Vec::new());
-        let input = AddCommandInput::new(
-            GivenVersion::Explicit {
-                version: Box::new(version),
-            },
-            true,
-            managed_versions,
-        );
+        let input = AddCommandInput::new(GivenVersion::Explicit { version }, true, managed_versions);
 
         let mut stdout = AssertLines::new();
         command_handler.add(&mut stdout, input).unwrap();
@@ -917,13 +897,7 @@ mod tests {
 
         let version = Version::new("6.20-GE-1", TagKind::Proton);
         let managed_versions = ManagedVersions::new(Vec::new());
-        let input = AddCommandInput::new(
-            GivenVersion::Explicit {
-                version: Box::new(version),
-            },
-            false,
-            managed_versions,
-        );
+        let input = AddCommandInput::new(GivenVersion::Explicit { version }, false, managed_versions);
 
         let mut stdout = AssertLines::new();
         command_handler.add(&mut stdout, input).unwrap();
@@ -946,13 +920,7 @@ mod tests {
             TagKind::Proton,
             "6-20-GE-1",
         )]);
-        let input = AddCommandInput::new(
-            GivenVersion::Explicit {
-                version: Box::new(version),
-            },
-            false,
-            managed_versions,
-        );
+        let input = AddCommandInput::new(GivenVersion::Explicit { version }, false, managed_versions);
 
         let mut stdout = AssertLines::new();
         let result = command_handler.add(&mut stdout, input);
@@ -1220,31 +1188,6 @@ mod tests {
     }
 
     #[test]
-    fn apply_to_app_config_for_non_existent_version() {
-        let ge_downloader = MockDownloader::new();
-        let fs_mng = MockFilesystemManager::new();
-
-        let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
-
-        let version = Version::new("6.20-GE-1", TagKind::Proton);
-        let managed_versions = ManagedVersions::new(Vec::new());
-        let input = ApplyCommandInput::new(
-            GivenVersion::Explicit {
-                version: Box::new(version),
-            },
-            managed_versions,
-        );
-
-        let mut stdout = AssertLines::new();
-        let result = command_handler.apply(&mut stdout, input);
-        assert!(result.is_err());
-
-        let err = result.unwrap_err();
-        assert_eq!(err.to_string(), "Given version is not managed");
-        stdout.assert_empty();
-    }
-
-    #[test]
     fn apply_to_app_config_for_latest_version() {
         let ge_downloader = MockDownloader::new();
         let mut fs_mng = MockFilesystemManager::new();
@@ -1252,13 +1195,8 @@ mod tests {
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
-        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new(
-            "6.20-GE-1",
-            "6.20-GE-1",
-            TagKind::Proton,
-            "6-20-GE-1",
-        )]);
-        let input = ApplyCommandInput::new(GivenVersion::Latest { kind: TagKind::Proton }, managed_versions);
+        let version = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "6-20-GE-1");
+        let input = ApplyCommandInput::new(version);
 
         let mut stdout = AssertLines::new();
         command_handler.apply(&mut stdout, input).unwrap();
@@ -1278,19 +1216,8 @@ mod tests {
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
-        let version = Version::new("6.20-GE-1", TagKind::Proton);
-        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new(
-            "6.20-GE-1",
-            "6.20-GE-1",
-            TagKind::Proton,
-            "6-20-GE-1",
-        )]);
-        let input = ApplyCommandInput::new(
-            GivenVersion::Explicit {
-                version: Box::new(version),
-            },
-            managed_versions,
-        );
+        let version = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "6-20-GE-1");
+        let input = ApplyCommandInput::new(version);
 
         let mut stdout = AssertLines::new();
         command_handler.apply(&mut stdout, input).unwrap();
@@ -1313,19 +1240,8 @@ mod tests {
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
-        let version = Version::new("6.20-GE-1", TagKind::Proton);
-        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new(
-            "6.20-GE-1",
-            "6.20-GE-1",
-            TagKind::Proton,
-            "6-20-GE-1",
-        )]);
-        let input = ApplyCommandInput::new(
-            GivenVersion::Explicit {
-                version: Box::new(version),
-            },
-            managed_versions,
-        );
+        let version = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "6-20-GE-1");
+        let input = ApplyCommandInput::new(version);
 
         let mut stdout = AssertLines::new();
         let result = command_handler.apply(&mut stdout, input);

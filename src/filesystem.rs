@@ -154,7 +154,7 @@ impl<'a> FilesystemManager for FsMng<'a> {
     }
 
     fn apply_to_app_config(&self, version: &ManagedVersion) -> anyhow::Result<()> {
-        // TODO: Move match arms code into private methods.
+        // TODO: Improve this with ApplicationConfig struct abstraction.
         match version.kind() {
             TagKind::Proton => {
                 let steam_cfg_path = self.path_config.steam_config(overrule::steam_root());

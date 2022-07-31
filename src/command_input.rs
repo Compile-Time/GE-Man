@@ -140,13 +140,37 @@ impl ListCommandInput {
     }
 }
 
-#[derive(Debug, Ord, PartialOrd, Eq)]
-pub enum GivenVersion {
-    Explicit { version: Box<dyn Versioned> },
+#[derive(Debug)]
+pub enum GivenVersion<T>
+where
+    T: Versioned,
+{
+    Explicit { version: T },
     Latest { kind: TagKind },
 }
 
-impl PartialEq for GivenVersion {
+impl PartialEq for GivenVersion<Version> {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            GivenVersion::Explicit { version } => {
+                if let GivenVersion::Explicit { version: other_version } = other {
+                    version.eq(other_version)
+                } else {
+                    false
+                }
+            }
+            GivenVersion::Latest { kind } => {
+                if let GivenVersion::Latest { kind: other_kind } = other {
+                    kind.eq(other_kind)
+                } else {
+                    false
+                }
+            }
+        }
+    }
+}
+
+impl PartialEq for GivenVersion<ManagedVersion> {
     fn eq(&self, other: &Self) -> bool {
         match self {
             GivenVersion::Explicit { version } => {
@@ -169,13 +193,13 @@ impl PartialEq for GivenVersion {
 
 #[derive(Debug)]
 pub struct AddCommandInput {
-    pub version: GivenVersion,
+    pub version: GivenVersion<Version>,
     pub skip_checksum: bool,
     pub managed_versions: ManagedVersions,
 }
 
 impl AddCommandInput {
-    pub fn new(version: GivenVersion, skip_checksum: bool, managed_versions: ManagedVersions) -> Self {
+    pub fn new(version: GivenVersion<Version>, skip_checksum: bool, managed_versions: ManagedVersions) -> Self {
         Self {
             version,
             skip_checksum,
@@ -190,7 +214,7 @@ impl AddCommandInput {
 
         let version = match tag_arg.tag {
             Some(tag) => GivenVersion::Explicit {
-                version: Box::new(Version::new(tag, tag_arg.kind)),
+                version: Version::new(tag, tag_arg.kind),
             },
             None => GivenVersion::Latest { kind: tag_arg.kind },
         };
@@ -309,30 +333,32 @@ impl MigrationCommandInput {
     }
 }
 
+#[derive(Debug)]
 pub struct ApplyCommandInput {
-    pub version: GivenVersion,
-    pub managed_versions: ManagedVersions,
+    pub version: ManagedVersion,
 }
 
 impl ApplyCommandInput {
-    pub fn new(version: GivenVersion, managed_versions: ManagedVersions) -> Self {
-        Self {
-            version,
-            managed_versions,
-        }
+    pub fn new(version: ManagedVersion) -> Self {
+        Self { version }
     }
 
-    pub fn create_from(matches: &ArgMatches, managed_versions: ManagedVersions) -> Self {
+    pub fn create_from(matches: &ArgMatches, managed_versions: ManagedVersions) -> anyhow::Result<Self> {
         let matches = matches.subcommand_matches(command_names::APPLY).unwrap();
         let tag_arg = TagArg::try_from(matches).expect("Could not create tag information from provided argument");
 
         let version = match tag_arg.tag {
-            Some(tag) => GivenVersion::Explicit {
-                version: Box::new(Version::new(tag, tag_arg.kind)),
-            },
-            None => GivenVersion::Latest { kind: tag_arg.kind },
+            Some(_) => {
+                let version = tag_arg.version();
+                match managed_versions.find_version(&version) {
+                    Some(v) => v,
+                    None => bail!("Given version does not exist"),
+                }
+            }
+            None => bail!("A tag value is required for the apply command"),
         };
-        ApplyCommandInput::new(version, managed_versions)
+
+        Ok(ApplyCommandInput::new(version))
     }
 }
 
@@ -571,14 +597,6 @@ mod tests {
         assert_eq!(input.version, expected.version);
     }
 
-    fn apply_test_template(args: Vec<&str>, expected: ApplyCommandInput) {
-        let matches = setup_clap().try_get_matches_from(args).unwrap();
-        let input = ApplyCommandInput::create_from(&matches, ManagedVersions::default());
-
-        assert_eq!(input.version, expected.version);
-        assert_eq!(input.managed_versions, expected.managed_versions);
-    }
-
     #[test_case("-p", TagKind::Proton; "Add specific Proton GE version")]
     #[test_case("-w", TagKind::wine(); "Add specific Wine GE version")]
     #[test_case("-l", TagKind::lol(); "Add specific Wine GE LoL version")]
@@ -587,7 +605,7 @@ mod tests {
         let args = vec!["geman", "add", kind_arg, "6.20-GE-1"];
         let expected = AddCommandInput::new(
             GivenVersion::Explicit {
-                version: Box::new(Version::new(tag, kind)),
+                version: Version::new(tag, kind),
             },
             false,
             ManagedVersions::default(),
@@ -790,13 +808,29 @@ mod tests {
     #[test_case("-l", TagKind::lol(); "Apply for Wine GE LoL")]
     fn apply_with_all_required_args(kind_arg: &str, kind: TagKind) {
         let args = vec!["geman", "apply", kind_arg, "6.20-GE-1"];
-        let expected = ApplyCommandInput::new(
-            GivenVersion::Explicit {
-                version: Box::new(Version::new("6.20-GE-1", kind)),
-            },
-            ManagedVersions::default(),
-        );
-        apply_test_template(args, expected);
+        let matches = setup_clap().try_get_matches_from(args).unwrap();
+        let version = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", kind, "");
+
+        let managed_versions = ManagedVersions::new(vec![version.clone()]);
+        let input = ApplyCommandInput::create_from(&matches, managed_versions).unwrap();
+
+        let expected = ApplyCommandInput::new(version);
+        assert_eq!(input.version, expected.version);
+    }
+
+    #[test_case("-p"; "Apply for Proton GE")]
+    #[test_case("-w"; "Apply for Wine GE")]
+    #[test_case("-l"; "Apply for Wine GE LoL")]
+    fn apply_version_not_present_in_managed_versions_expecting_error(kind_arg: &str) {
+        let args = vec!["geman", "apply", kind_arg, "6.20-GE-1"];
+        let matches = setup_clap().try_get_matches_from(args).unwrap();
+
+        let managed_versions = ManagedVersions::default();
+        let result = ApplyCommandInput::create_from(&matches, managed_versions);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert_eq!(err.to_string(), "Given version does not exist");
     }
 
     #[test]

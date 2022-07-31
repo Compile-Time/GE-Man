@@ -10,7 +10,7 @@ use ge_man::clap::command_names::{
 use ge_man::command_execution::CommandHandler;
 use ge_man::command_input::{
     AddCommandInput, ApplyCommandInput, CheckCommandInput, CleanCommandInput, CleanDryRunInput,
-    CopyUserSettingsCommandInput, GivenVersion, ListCommandInput, MigrationCommandInput, RemoveCommandInput,
+    CopyUserSettingsCommandInput, ListCommandInput, MigrationCommandInput, RemoveCommandInput,
 };
 use ge_man::data::ManagedVersions;
 use ge_man::filesystem::FsMng;
@@ -68,12 +68,7 @@ fn main() -> anyhow::Result<()> {
             writeln!(out_handle, "Successfully added version").unwrap();
 
             if AddCommandInput::apply_present(&matches) {
-                let apply_input = ApplyCommandInput::new(
-                    GivenVersion::Explicit {
-                        version: Box::new(new_and_managed_versions.new_versions[0].clone()),
-                    },
-                    new_and_managed_versions.managed_versions,
-                );
+                let apply_input = ApplyCommandInput::new(new_and_managed_versions.new_versions[0].clone());
                 command_handler.apply(&mut out_handle, apply_input)?;
             }
 
@@ -124,7 +119,7 @@ fn main() -> anyhow::Result<()> {
             let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
             let managed_versions = ManagedVersions::from_file(&managed_versions_path)?;
 
-            let input = ApplyCommandInput::create_from(&matches, managed_versions);
+            let input = ApplyCommandInput::create_from(&matches, managed_versions)?;
             command_handler.apply(&mut out_handle, input)
         }
         Some(PROTON_USER_SETTINGS) => {
