@@ -362,11 +362,11 @@ mod tests {
 
         let tmp_dir = TempDir::new().unwrap();
         let path_config = MockPathConfig::new(PathBuf::from(tmp_dir.path()));
-        std::fs::create_dir_all(path_config.steam_compatibility_tools_dir(None).join(&dir_name)).unwrap();
+        fs::create_dir_all(path_config.steam_compatibility_tools_dir(None).join(&dir_name)).unwrap();
 
         let fs_manager = FsMng::new(&path_config);
 
-        let version = ManagedVersion::new(Tag::from(tag), kind, dir_name.clone());
+        let version = ManagedVersion::new(tag.clone(), tag, kind, dir_name.clone());
         fs_manager.remove_version(&version).unwrap();
 
         tmp_dir
@@ -390,7 +390,7 @@ mod tests {
 
         let fs_manager = FsMng::new(&path_config);
 
-        let version = ManagedVersion::new(Tag::from(tag), kind, dir_name.clone());
+        let version = ManagedVersion::new(tag.clone(), tag, kind, dir_name.clone());
         fs_manager.remove_version(&version).unwrap();
 
         tmp_dir
@@ -414,7 +414,7 @@ mod tests {
 
         let fs_manager = FsMng::new(&path_config);
 
-        let version = ManagedVersion::new(Tag::from(tag), kind, dir_name.clone());
+        let version = ManagedVersion::new(tag.clone(), tag, kind, dir_name.clone());
         fs_manager.remove_version(&version).unwrap();
 
         tmp_dir
@@ -606,7 +606,7 @@ mod tests {
         .unwrap();
         let fs_mng = FsMng::new(&path_cfg);
 
-        let version = ManagedVersion::new("6.20-GE-1", TagKind::Proton, proton_dir_name);
+        let version = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, proton_dir_name);
         fs_mng.apply_to_app_config(&version).unwrap();
 
         let modified_config = SteamConfig::create_copy(&steam_cfg_file).unwrap();
@@ -639,7 +639,7 @@ mod tests {
         .unwrap();
         let fs_mng = FsMng::new(&path_cfg);
 
-        let version = ManagedVersion::new("6.20-GE-1", TagKind::wine(), dir_name);
+        let version = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::wine(), dir_name);
         fs_mng.apply_to_app_config(&version).unwrap();
 
         let modified_config = LutrisConfig::create_copy(&cfg_file).unwrap();
@@ -671,7 +671,7 @@ mod tests {
         .unwrap();
         let fs_mng = FsMng::new(&path_cfg);
 
-        let version = ManagedVersion::new("6.21-GE-1", TagKind::wine(), dir_name);
+        let version = ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::wine(), dir_name);
         fs_mng.apply_to_app_config(&version).unwrap();
 
         let modified_config = LutrisConfig::create_copy(&cfg_file).unwrap();

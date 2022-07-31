@@ -649,10 +649,11 @@ mod tests {
     #[test_case("-l", TagKind::lol(); "Remove Wine GE LoL version")]
     fn remove_specific_tag(kind_arg: &str, kind: TagKind) {
         let command = vec!["geman", "rm", kind_arg, "6.20-GE-1"];
-        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", kind, "6.20-GE-1")]);
+        let managed_versions =
+            ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", "6.20-GE-1", kind, "6.20-GE-1")]);
         let expected = RemoveCommandInput::new(
             managed_versions,
-            ManagedVersion::new("6.20-GE-1", kind, "6.20-GE-1"),
+            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", kind, "6.20-GE-1"),
             PathBuf::from("/tmp/test"),
             false,
         );
@@ -664,10 +665,11 @@ mod tests {
     #[test_case("-l", TagKind::lol(); "Remove Wine GE LoL version")]
     fn remove_with_forget_flag(kind_arg: &str, kind: TagKind) {
         let command = vec!["geman", "rm", kind_arg, "6.20-GE-1", "-f"];
-        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", kind, "6.20-GE-1")]);
+        let managed_versions =
+            ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", "6.20-GE-1", kind, "6.20-GE-1")]);
         let expected = RemoveCommandInput::new(
             managed_versions,
-            ManagedVersion::new("6.20-GE-1", kind, "6.20-GE-1"),
+            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", kind, "6.20-GE-1"),
             PathBuf::from("/tmp/test"),
             true,
         );
@@ -693,7 +695,8 @@ mod tests {
         let command = vec!["geman", "rm", tag_arg, "6.20-GE-1"];
         let matches = setup_clap().try_get_matches_from(command).unwrap();
 
-        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-2", kind, "6.21-GE-2")]);
+        let managed_versions =
+            ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-2", "6.21-GE-2", kind, "6.21-GE-2")]);
         let result = RemoveCommandInput::create_from(&matches, managed_versions.clone(), PathBuf::from("/tmp/test"));
         assert!(result.is_err());
     }
@@ -821,13 +824,13 @@ mod tests {
         let command = vec!["geman", "user-settings", "copy", "-s", "6.20-GE-1", "-d", "6.21-GE-1"];
         let matches = setup_clap().try_get_matches_from(command).unwrap();
         let managed_versions = ManagedVersions::new(vec![
-            ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
-            ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, ""),
         ]);
         let input = CopyUserSettingsCommandInput::create_from(&matches, &managed_versions).unwrap();
 
-        let src_version = ManagedVersion::new("6.20-GE-1", TagKind::Proton, "");
-        let dst_version = ManagedVersion::new("6.21-GE-1", TagKind::Proton, "");
+        let src_version = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "");
+        let dst_version = ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, "");
         let expected = CopyUserSettingsCommandInput::new(src_version, dst_version);
 
         assert_eq!(input.src_version, expected.src_version);
@@ -838,7 +841,8 @@ mod tests {
     fn copy_user_settings_where_stored_source_tag_does_not_exist() {
         let command = vec!["geman", "user-settings", "copy", "-s", "6.20-GE-1", "-d", "6.21-GE-1"];
         let matches = setup_clap().try_get_matches_from(command).unwrap();
-        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-1", TagKind::Proton, "")]);
+        let managed_versions =
+            ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, "")]);
         let result = CopyUserSettingsCommandInput::create_from(&matches, &managed_versions);
         assert!(result.is_err());
 
@@ -850,7 +854,8 @@ mod tests {
     fn copy_user_settings_where_stored_destination_tag_does_not_exist() {
         let command = vec!["geman", "user-settings", "copy", "-s", "6.20-GE-1", "-d", "6.21-GE-1"];
         let matches = setup_clap().try_get_matches_from(command).unwrap();
-        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", TagKind::Proton, "")]);
+        let managed_versions =
+            ManagedVersions::new(vec![ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "")]);
         let result = CopyUserSettingsCommandInput::create_from(&matches, &managed_versions);
         assert!(result.is_err());
 
@@ -882,8 +887,12 @@ mod tests {
         let matches = setup_clap().try_get_matches_from(command).unwrap();
         let mut path_cfg = MockPathConfiguration::new();
 
-        let managed_versions =
-            ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-1", TagKind::wine(), "6.21-GE-1")]);
+        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new(
+            "6.21-GE-1",
+            "6.21-GE-1",
+            TagKind::wine(),
+            "6.21-GE-1",
+        )]);
 
         path_cfg
             .expect_application_config_file()
@@ -914,8 +923,12 @@ mod tests {
         let matches = setup_clap().try_get_matches_from(command).unwrap();
         let mut path_cfg = MockPathConfiguration::new();
 
-        let managed_versions =
-            ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-1", TagKind::Proton, "6.21-GE-1")]);
+        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new(
+            "6.21-GE-1",
+            "6.21-GE-1",
+            TagKind::Proton,
+            "6.21-GE-1",
+        )]);
 
         path_cfg
             .expect_application_config_file()
@@ -942,9 +955,9 @@ mod tests {
         let command = vec!["geman", "clean", "-p", "-b", "6.21-GE-2"];
         let matches = setup_clap().try_get_matches_from(command).unwrap();
         let managed_versions = ManagedVersions::new(vec![
-            ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
-            ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
-            ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
+            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, ""),
         ]);
 
         let input = CleanCommandInput::create_from(
@@ -972,9 +985,9 @@ mod tests {
         let command = vec!["geman", "clean", "-p", "-s", "6.20-GE-1", "-e", "6.21-GE-2"];
         let matches = setup_clap().try_get_matches_from(command).unwrap();
         let managed_versions = ManagedVersions::new(vec![
-            ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
-            ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
-            ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
+            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, ""),
         ]);
 
         let input = CleanCommandInput::create_from(
@@ -999,9 +1012,9 @@ mod tests {
         let command = vec!["geman", "clean", "-p", "-s", "6.20-GE-1", "-e", "6.21-GE-2", "-f"];
         let matches = setup_clap().try_get_matches_from(command).unwrap();
         let managed_versions = ManagedVersions::new(vec![
-            ManagedVersion::new("6.20-GE-1", TagKind::Proton, ""),
-            ManagedVersion::new("6.21-GE-1", TagKind::Proton, ""),
-            ManagedVersion::new("6.21-GE-2", TagKind::Proton, ""),
+            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, ""),
+            ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, ""),
         ]);
 
         let input = CleanCommandInput::create_from(

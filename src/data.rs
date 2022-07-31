@@ -15,20 +15,23 @@ use crate::version::{Version, Versioned};
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type")]
 pub struct ManagedVersion {
+    label: String,
     tag: Tag,
     kind: TagKind,
     directory_name: String,
 }
 
 impl ManagedVersion {
-    pub fn new<T, S>(tag: T, kind: TagKind, directory_name: S) -> Self
+    pub fn new<T, S>(label: S, tag: T, kind: TagKind, directory_name: S) -> Self
     where
         T: Into<Tag>,
         S: Into<String>,
     {
+        let label = label.into();
         let tag = tag.into();
         let directory_name = directory_name.into();
         ManagedVersion {
+            label,
             tag,
             kind,
             directory_name,
@@ -63,16 +66,18 @@ impl ManagedVersion {
 impl From<Version> for ManagedVersion {
     fn from(v: Version) -> Self {
         let tag = v.tag().clone();
+        let label = tag.str().clone();
         let kind = *v.kind();
-        ManagedVersion::new(tag, kind, String::new())
+        ManagedVersion::new(label, tag, kind, String::new())
     }
 }
 
 impl From<&Version> for ManagedVersion {
     fn from(v: &Version) -> Self {
         let tag = v.tag().clone();
+        let label = tag.str().clone();
         let kind = *v.kind();
-        ManagedVersion::new(tag, kind, String::new())
+        ManagedVersion::new(label, tag, kind, String::new())
     }
 }
 
@@ -323,7 +328,7 @@ mod managed_version_tests {
     use super::*;
 
     fn setup_version() -> ManagedVersion {
-        ManagedVersion::new(Tag::from("6.20-GE-1"), TagKind::Proton, "Proton-6.20-GE-1")
+        ManagedVersion::new("6.20-GE-1", Tag::from("6.20-GE-1"), TagKind::Proton, "Proton-6.20-GE-1")
     }
 
     #[test]
@@ -399,15 +404,15 @@ mod managed_versions_tests {
         let latest_lol = managed_versions.find_latest_by_kind(&TagKind::lol()).unwrap();
         assert_eq!(
             latest_proton,
-            ManagedVersion::new(Tag::from("6.20-GE-1"), TagKind::Proton, String::new())
+            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "")
         );
         assert_eq!(
             latest_wine,
-            ManagedVersion::new(Tag::from("6.20-GE-1"), TagKind::wine(), String::new())
+            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::wine(), "")
         );
         assert_eq!(
             latest_lol,
-            ManagedVersion::new(Tag::from("6.16-GE-3-LoL"), TagKind::lol(), String::new())
+            ManagedVersion::new("6.16-GE-3-LoL", "6.16-GE-3-LoL", TagKind::lol(), "")
         );
     }
 
@@ -419,9 +424,9 @@ mod managed_versions_tests {
         assert_eq!(
             result,
             ManagedVersions::new(vec![
-                ManagedVersion::new(Tag::from("6.20-GE-1"), TagKind::Proton, String::new()),
-                ManagedVersion::new(Tag::from("6.20-GE-1"), TagKind::wine(), String::new()),
-                ManagedVersion::new(Tag::from("6.16-GE-3-LoL"), TagKind::lol(), String::new()),
+                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
+                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::wine(), ""),
+                ManagedVersion::new("6.16-GE-3-LoL", "6.16-GE-3-LoL", TagKind::lol(), ""),
             ])
         );
     }
