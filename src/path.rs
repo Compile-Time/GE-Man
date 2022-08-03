@@ -14,6 +14,7 @@ pub const LUTRIS_WINE_RUNNERS_DIR: &str = "lutris/runners/wine";
 pub const HOME: &str = "HOME";
 pub const XDG_DATA_HOME: &str = "XDG_DATA_HOME";
 pub const XDG_CONFIG_HOME: &str = "XDG_CONFIG_HOME";
+pub const XDG_STATE_HOME: &str = "XDG_STATE_HOME";
 pub const STEAM_PATH_ENV: &str = "GE_MAN_STEAM_PATH";
 const APP_NAME: &str = "ge_man";
 
@@ -26,6 +27,10 @@ pub mod overrule {
 
     pub fn xdg_config_home() -> Option<PathBuf> {
         env::var(XDG_CONFIG_HOME).map(PathBuf::from).ok()
+    }
+
+    pub fn xdg_state_home() -> Option<PathBuf> {
+        env::var(XDG_STATE_HOME).map(PathBuf::from).ok()
     }
 
     pub fn steam_root() -> Option<PathBuf> {
@@ -58,6 +63,17 @@ pub trait PathConfiguration {
                 env::var(HOME)
                     .ok()
                     .map(|home| PathBuf::from(format!("{}/.config", home)))
+            })
+            .unwrap()
+    }
+
+    /// Path contained in "XDG_STATE_HOME" or "$HOME/.local/state"
+    fn xdg_state_dir(&self, xdg_state_home: Option<PathBuf>) -> PathBuf {
+        xdg_state_home
+            .or_else(|| {
+                env::var(HOME)
+                    .ok()
+                    .map(|home| PathBuf::from(format!("{}/.local/state", home)))
             })
             .unwrap()
     }

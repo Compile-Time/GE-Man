@@ -59,7 +59,7 @@ fn main() -> anyhow::Result<()> {
         Some(ADD) => {
             let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
             let managed_versions = ManagedVersions::from_file(&managed_versions_path)?;
-            let add_input = AddCommandInput::create_from(&matches, managed_versions);
+            let add_input = AddCommandInput::create_from(&matches, managed_versions)?;
 
             let new_and_managed_versions = command_handler.add(&mut out_handle, add_input)?;
             new_and_managed_versions
@@ -101,8 +101,10 @@ fn main() -> anyhow::Result<()> {
             let managed_versions_path = path_config.managed_versions_config(overrule::xdg_data_home());
             let managed_versions = ManagedVersions::from_file(&managed_versions_path)?;
 
-            let new_and_managed_versions =
-                command_handler.migrate(MigrationCommandInput::create_from(&matches, managed_versions))?;
+            let new_and_managed_versions = command_handler.migrate(
+                &mut err_handle,
+                MigrationCommandInput::create_from(&matches, managed_versions),
+            )?;
 
             new_and_managed_versions
                 .managed_versions

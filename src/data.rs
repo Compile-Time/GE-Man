@@ -9,25 +9,32 @@ use std::vec::IntoIter;
 use anyhow::{bail, Context};
 use ge_man_lib::tag::{Tag, TagKind};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
+use crate::label::Label;
 use crate::version::{Version, Versioned};
+
+#[derive(Error, Debug)]
+pub enum ManagedVersionError {
+    #[error("Label in Version is a None")]
+    NoLabelFromVersion,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type")]
 pub struct ManagedVersion {
-    label: String,
+    label: Label,
     tag: Tag,
     kind: TagKind,
     directory_name: String,
 }
 
 impl ManagedVersion {
-    pub fn new<T, S>(label: S, tag: T, kind: TagKind, directory_name: S) -> Self
+    pub fn new<T, S>(label: Label, tag: T, kind: TagKind, directory_name: S) -> Self
     where
         T: Into<Tag>,
         S: Into<String>,
     {
-        let label = label.into();
         let tag = tag.into();
         let directory_name = directory_name.into();
         ManagedVersion {
@@ -61,23 +68,29 @@ impl ManagedVersion {
     pub fn set_directory_name<S: Into<String>>(&mut self, name: S) {
         self.directory_name = name.into();
     }
-}
 
-impl From<Version> for ManagedVersion {
-    fn from(v: Version) -> Self {
-        let tag = v.tag().clone();
-        let label = tag.str().clone();
-        let kind = *v.kind();
-        ManagedVersion::new(label, tag, kind, String::new())
+    pub fn label(&self) -> &Label {
+        &self.label
+    }
+
+    pub fn set_label(&mut self, label: Label) {
+        self.label = label;
     }
 }
 
-impl From<&Version> for ManagedVersion {
-    fn from(v: &Version) -> Self {
+impl TryFrom<Version> for ManagedVersion {
+    type Error = ManagedVersionError;
+
+    fn try_from(v: Version) -> Result<Self, Self::Error> {
+        let label = if let Some(label) = v.label().cloned() {
+            label
+        } else {
+            return Err(ManagedVersionError::NoLabelFromVersion);
+        };
+
         let tag = v.tag().clone();
-        let label = tag.str().clone();
         let kind = *v.kind();
-        ManagedVersion::new(label, tag, kind, String::new())
+        Ok(ManagedVersion::new(label, tag, kind, String::new()))
     }
 }
 
@@ -188,7 +201,7 @@ impl ManagedVersions {
         Ok(())
     }
 
-    fn get_version_index(&self, version: &dyn Versioned) -> Option<usize> {
+    fn get_version_index(&self, version: &ManagedVersion) -> Option<usize> {
         self.versions.iter().position(|i| i.eq(version))
     }
 
@@ -200,16 +213,25 @@ impl ManagedVersions {
             .cloned()
     }
 
-    pub fn remove(&mut self, version: &dyn Versioned) -> Option<ManagedVersion> {
+    pub fn remove(&mut self, version: &ManagedVersion) -> Option<ManagedVersion> {
         match self.get_version_index(version) {
             Some(index) => Some(self.versions.swap_remove(index)),
             None => None,
         }
     }
 
-    pub fn find_version(&self, version: &dyn Versioned) -> Option<ManagedVersion> {
-        self.get_version_index(version)
-            .and_then(|index| self.versions.get(index).cloned())
+    pub fn find_all_by_tag_and_kind(&self, tag: &Tag, kind: &TagKind) -> ManagedVersions {
+        self.versions
+            .clone()
+            .into_iter()
+            .filter(|v| v.tag.eq(tag) && v.kind.eq(kind))
+            .collect()
+    }
+
+    pub fn find_by_label<T: AsRef<str>>(&self, label: T, kind: &TagKind) -> Option<&ManagedVersion> {
+        self.versions
+            .iter()
+            .find(|v| v.label.eq(label.as_ref()) && v.kind.eq(&kind))
     }
 
     pub fn latest_versions(&self) -> ManagedVersions {
@@ -328,7 +350,13 @@ mod managed_version_tests {
     use super::*;
 
     fn setup_version() -> ManagedVersion {
-        ManagedVersion::new("6.20-GE-1", Tag::from("6.20-GE-1"), TagKind::Proton, "Proton-6.20-GE-1")
+        let tag = "6.20-GE-1";
+        ManagedVersion::new(
+            Label::new(tag).unwrap(),
+            tag,
+            TagKind::Proton,
+            "Proton-6.20-GE-1_L6.20-GE-1",
+        )
     }
 
     #[test]
@@ -380,53 +408,44 @@ mod managed_versions_tests {
 
     use assert_fs::TempDir;
     use ge_man_lib::tag::TagKind;
-    use lazy_static::lazy_static;
 
     use super::*;
+    use crate::fixture;
 
-    lazy_static! {
-        static ref VERSIONS: Vec<ManagedVersion> = vec![
-            ManagedVersion::from(Version::proton("6.20-GE-1")),
-            ManagedVersion::from(Version::proton("6.19-GE-2")),
-            ManagedVersion::from(Version::wine("6.20-GE-1")),
-            ManagedVersion::from(Version::wine("6.19-GE-2")),
-            ManagedVersion::from(Version::lol("6.16-GE-3-LoL")),
-            ManagedVersion::from(Version::lol("6.16-2-GE-Lol")),
-        ];
+    fn all_versions() -> Vec<ManagedVersion> {
+        vec![
+            fixture::managed_version::v6_19_1_proton(),
+            fixture::managed_version::v6_20_1_proton(),
+            fixture::managed_version::v6_19_1_proton(),
+            fixture::managed_version::v6_20_1_proton(),
+            fixture::managed_version::v6_19_1_proton(),
+            fixture::managed_version::v6_20_1_proton(),
+        ]
     }
 
     #[test]
     fn latest_by_kind() {
-        let managed_versions = ManagedVersions::new(VERSIONS.clone());
+        let managed_versions = ManagedVersions::new(all_versions());
 
         let latest_proton = managed_versions.find_latest_by_kind(&TagKind::Proton).unwrap();
         let latest_wine = managed_versions.find_latest_by_kind(&TagKind::wine()).unwrap();
         let latest_lol = managed_versions.find_latest_by_kind(&TagKind::lol()).unwrap();
-        assert_eq!(
-            latest_proton,
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "")
-        );
-        assert_eq!(
-            latest_wine,
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::wine(), "")
-        );
-        assert_eq!(
-            latest_lol,
-            ManagedVersion::new("6.16-GE-3-LoL", "6.16-GE-3-LoL", TagKind::lol(), "")
-        );
+        assert_eq!(latest_proton, fixture::managed_version::v6_20_1_proton());
+        assert_eq!(latest_wine, fixture::managed_version::v6_20_1_wine());
+        assert_eq!(latest_lol, fixture::managed_version::v6_16_3_lol());
     }
 
     #[test]
     fn latest_versions() {
-        let managed_versions = ManagedVersions::new(VERSIONS.clone());
+        let managed_versions = ManagedVersions::new(all_versions());
         let result = managed_versions.latest_versions();
 
         assert_eq!(
             result,
             ManagedVersions::new(vec![
-                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::wine(), ""),
-                ManagedVersion::new("6.16-GE-3-LoL", "6.16-GE-3-LoL", TagKind::lol(), ""),
+                fixture::managed_version::v6_20_1_proton(),
+                fixture::managed_version::v6_20_1_wine(),
+                fixture::managed_version::v6_16_3_lol(),
             ])
         );
     }
@@ -434,33 +453,29 @@ mod managed_versions_tests {
     #[test]
     fn add() {
         let mut managed_versions = ManagedVersions::default();
-        let version = ManagedVersion::from(Version::proton("6.20-GE-1"));
-        managed_versions.push(version);
-        assert!(managed_versions.find_version(&Version::proton("6.20-GE-1")).is_some());
+        let version = fixture::managed_version::v6_20_1_proton();
+        managed_versions.push(version.clone());
+        assert!(managed_versions
+            .find_by_label(version.label(), &TagKind::Proton)
+            .is_some());
     }
 
     #[test]
     fn remove_existing_version() {
-        let version = ManagedVersion::from(Version::proton("6.20-GE-1"));
-        let mut managed_versions = ManagedVersions::new(vec![version]);
-        managed_versions.remove(&Version::proton("6.20-GE-1")).unwrap();
-        assert!(!managed_versions.find_version(&Version::proton("6.20-GE-1")).is_some());
+        let version = fixture::managed_version::v6_20_1_proton();
+        let mut managed_versions = ManagedVersions::new(vec![version.clone()]);
+        managed_versions.remove(&version).unwrap();
+        assert!(!managed_versions
+            .find_by_label(version.label(), &TagKind::Proton)
+            .is_some());
         assert!(managed_versions.is_empty());
     }
 
     #[test]
     fn remove_version_that_does_not_exist() {
         let mut managed_versions = ManagedVersions::default();
-        let option = managed_versions.remove(&Version::proton("6.20-GE-1"));
+        let option = managed_versions.remove(&fixture::managed_version::v6_20_1_proton());
         assert_eq!(option, None);
-    }
-
-    #[test]
-    fn has_version() {
-        let version = ManagedVersion::from(Version::proton("6.19-GE-1"));
-        let managed_versions = ManagedVersions::new(vec![version]);
-        assert!(!managed_versions.find_version(&Version::proton("6.20-GE-1")).is_some());
-        assert!(managed_versions.find_version(&Version::proton("6.19-GE-1")).is_some());
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -14,7 +15,7 @@ use mockall::{automock, predicate::*};
 use crate::compat_tool_app::ApplicationConfig;
 use crate::data::ManagedVersion;
 use crate::path::{overrule, PathConfiguration, LUTRIS_WINE_RUNNERS_DIR, STEAM_COMP_DIR};
-use crate::version::{Version, Versioned};
+use crate::version::Version;
 
 const USER_SETTINGS_PY: &str = "user_settings.py";
 const LUTRIS_INITIAL_WINE_RUNNER_CONFIG: &str = r#"
@@ -100,18 +101,27 @@ impl<'a> FsMng<'a> {
 
 impl<'a> FilesystemManager for FsMng<'a> {
     fn setup_version(&self, version: Version, compressed_tar: Box<dyn Read>) -> anyhow::Result<ManagedVersion> {
-        let dst_path = match version.kind() {
+        let mut version = ManagedVersion::try_from(version)?;
+
+        let local_state_path = self.path_config.xdg_state_dir(overrule::xdg_state_home());
+        let extracted_location = archive::extract_compressed(version.kind(), compressed_tar, &local_state_path)
+            .context("Failed to extract compressed archive")?;
+
+        let app_tool_path = match version.kind() {
             TagKind::Proton => self.path_config.steam_compatibility_tools_dir(overrule::steam_root()),
             TagKind::Wine { .. } => self.path_config.lutris_runners_dir(overrule::xdg_data_home()),
         };
-        let extracted_location = archive::extract_compressed(version.kind(), compressed_tar, &dst_path)
-            .context("Failed to extract compressed archive")?;
 
-        let directory_name = String::from_utf8_lossy(extracted_location.file_name().unwrap().as_bytes()).into_owned();
+        let mut directory_name = extracted_location
+            .file_name()
+            .map(OsStr::to_string_lossy)
+            .map(|string| string.to_string())
+            .unwrap();
+        directory_name.push_str(&format!("_{}", version.label()));
+        version.set_directory_name(directory_name.clone());
 
-        let mut version = ManagedVersion::from(version);
-        version.set_directory_name(directory_name);
-
+        // Move extracted archive to correct location.
+        fs::rename(extracted_location, app_tool_path.join(directory_name))?;
         Ok(version)
     }
 
@@ -133,8 +143,13 @@ impl<'a> FilesystemManager for FsMng<'a> {
     }
 
     fn migrate_folder(&self, version: Version, source_path: &Path) -> anyhow::Result<ManagedVersion> {
-        let mut managed_version = ManagedVersion::from(version);
-        let dir_name = format!("GEH_{}_{}", managed_version.kind(), managed_version.tag());
+        let mut managed_version = ManagedVersion::try_from(version)?;
+        let dir_name = format!(
+            "GE-MAN_{}_{}_L{}",
+            managed_version.kind(),
+            managed_version.tag(),
+            managed_version.label(),
+        );
         managed_version.set_directory_name(dir_name);
 
         match source_path.parent() {
@@ -240,6 +255,8 @@ mod tests {
     use std::io::BufReader;
     use std::path::PathBuf;
 
+    use crate::fixture;
+    use crate::version::Versioned;
     use assert_fs::prelude::{PathAssert, PathChild};
     use assert_fs::TempDir;
     use ge_man_lib::tag::Tag;
@@ -272,8 +289,6 @@ mod tests {
 
     #[test]
     fn setup_proton_version() {
-        let tag = String::from("6.20-GE-1");
-        let kind = TagKind::Proton;
         let dir_name = "Proton-6.20-GE-1";
 
         let tmp_dir = TempDir::new().unwrap();
@@ -283,16 +298,18 @@ mod tests {
         let fs_manager = FsMng::new(&path_config);
 
         let compressed_tar = BufReader::new(File::open("test_resources/assets/Proton-6.20-GE-1.tar.gz").unwrap());
-        let version = Version::new(tag.clone(), kind.clone());
-        let managed_version = fs_manager.setup_version(version, Box::new(compressed_tar)).unwrap();
+        let version = fixture::version::v6_20_1_proton();
+        let managed_version = fs_manager
+            .setup_version(version.clone(), Box::new(compressed_tar))
+            .unwrap();
 
-        assert_eq!(managed_version.tag(), &Tag::from(tag));
-        assert_eq!(managed_version.kind(), &kind);
+        assert_eq!(managed_version.tag(), version.tag());
+        assert_eq!(managed_version.kind(), version.kind());
         assert_eq!(managed_version.directory_name(), dir_name);
         tmp_dir
             .child(".steam/root/compatibilitytools.d")
             .child(&dir_name)
-            .assert(predicates::path::exists());
+            .assert(path::exists());
 
         drop(fs_manager);
         tmp_dir.close().unwrap();
@@ -300,8 +317,6 @@ mod tests {
 
     #[test]
     fn setup_wine_version() {
-        let tag = String::from("6.20-GE-1");
-        let kind = TagKind::wine();
         let dir_name = "Wine-6.20-GE-1";
 
         let tmp_dir = TempDir::new().unwrap();
@@ -311,16 +326,18 @@ mod tests {
         let fs_manager = FsMng::new(&path_config);
 
         let compressed_tar = BufReader::new(File::open("test_resources/assets/Wine-6.20-GE-1.tar.xz").unwrap());
-        let version = Version::new(tag.clone(), kind.clone());
-        let managed_version = fs_manager.setup_version(version, Box::new(compressed_tar)).unwrap();
+        let version = fixture::version::v6_20_1_wine();
+        let managed_version = fs_manager
+            .setup_version(version.clone(), Box::new(compressed_tar))
+            .unwrap();
 
-        assert_eq!(managed_version.tag(), &Tag::from(tag));
-        assert_eq!(managed_version.kind(), &kind);
+        assert_eq!(managed_version.tag(), version.tag());
+        assert_eq!(managed_version.kind(), version.kind());
         assert_eq!(managed_version.directory_name(), dir_name);
         tmp_dir
             .child(".local/share/lutris/runners/wine")
             .child(&dir_name)
-            .assert(predicates::path::exists());
+            .assert(path::exists());
 
         drop(fs_manager);
         tmp_dir.close().unwrap();
@@ -328,8 +345,6 @@ mod tests {
 
     #[test]
     fn setup_wine_lol_version() {
-        let tag = String::from("6.20-GE-1");
-        let kind = TagKind::lol();
         let dir_name = "Wine-6.20-GE-1-LoL";
 
         let tmp_dir = TempDir::new().unwrap();
@@ -339,16 +354,18 @@ mod tests {
         let fs_manager = FsMng::new(&path_config);
 
         let compressed_tar = BufReader::new(File::open("test_resources/assets/Wine-6.20-GE-1-LoL.tar.xz").unwrap());
-        let version = Version::new(tag.clone(), kind.clone());
-        let managed_version = fs_manager.setup_version(version, Box::new(compressed_tar)).unwrap();
+        let version = fixture::version::v6_20_1_lol();
+        let managed_version = fs_manager
+            .setup_version(version.clone(), Box::new(compressed_tar))
+            .unwrap();
 
-        assert_eq!(managed_version.tag(), &Tag::from(tag));
-        assert_eq!(managed_version.kind(), &kind);
+        assert_eq!(managed_version.tag(), version.tag());
+        assert_eq!(managed_version.kind(), version.kind());
         assert_eq!(managed_version.directory_name(), dir_name);
         tmp_dir
             .child(".local/share/lutris/runners/wine")
             .child(&dir_name)
-            .assert(predicates::path::exists());
+            .assert(path::exists());
 
         drop(fs_manager);
         tmp_dir.close().unwrap();
@@ -356,23 +373,24 @@ mod tests {
 
     #[test]
     fn remove_proton_version() {
-        let tag = String::from("6.20-GE-1");
-        let dir_name = String::from("Proton-6.20-GE-1");
-        let kind = TagKind::Proton;
+        let version = fixture::managed_version::v6_20_1_proton();
 
         let tmp_dir = TempDir::new().unwrap();
         let path_config = MockPathConfig::new(PathBuf::from(tmp_dir.path()));
-        fs::create_dir_all(path_config.steam_compatibility_tools_dir(None).join(&dir_name)).unwrap();
+        fs::create_dir_all(
+            path_config
+                .steam_compatibility_tools_dir(None)
+                .join(version.directory_name()),
+        )
+        .unwrap();
 
         let fs_manager = FsMng::new(&path_config);
-
-        let version = ManagedVersion::new(tag.clone(), tag, kind, dir_name.clone());
         fs_manager.remove_version(&version).unwrap();
 
         tmp_dir
             .child(".local/share/game-compatibility-manager/versions/proton-ge")
-            .child(&dir_name)
-            .assert(predicates::path::missing());
+            .child(version.directory_name())
+            .assert(path::missing());
 
         drop(fs_manager);
         tmp_dir.close().unwrap();
@@ -380,23 +398,19 @@ mod tests {
 
     #[test]
     fn remove_wine_version() {
-        let tag = String::from("6.20-GE-1");
-        let dir_name = String::from("Wine-6.20-GE-1");
-        let kind = TagKind::wine();
+        let version = fixture::managed_version::v6_20_1_wine();
 
         let tmp_dir = TempDir::new().unwrap();
         let path_config = MockPathConfig::new(PathBuf::from(tmp_dir.path()));
-        std::fs::create_dir_all(path_config.lutris_runners_dir(None).join(&dir_name)).unwrap();
+        fs::create_dir_all(path_config.lutris_runners_dir(None).join(version.directory_name())).unwrap();
 
         let fs_manager = FsMng::new(&path_config);
-
-        let version = ManagedVersion::new(tag.clone(), tag, kind, dir_name.clone());
         fs_manager.remove_version(&version).unwrap();
 
         tmp_dir
             .child(".local/share/game-compatibility-manager/versions/wine-ge")
-            .child(&dir_name)
-            .assert(predicates::path::missing());
+            .child(version.directory_name())
+            .assert(path::missing());
 
         drop(fs_manager);
         tmp_dir.close().unwrap();
@@ -404,23 +418,19 @@ mod tests {
 
     #[test]
     fn remove_wine_lol_version() {
-        let tag = String::from("6.20-GE-1-LoL");
-        let dir_name = String::from("Wine-6.20-GE-1-LoL");
-        let kind = TagKind::lol();
+        let version = fixture::managed_version::v6_20_1_wine();
 
         let tmp_dir = TempDir::new().unwrap();
         let path_config = MockPathConfig::new(PathBuf::from(tmp_dir.path()));
-        std::fs::create_dir_all(path_config.lutris_runners_dir(None).join(&dir_name)).unwrap();
+        fs::create_dir_all(path_config.lutris_runners_dir(None).join(version.directory_name())).unwrap();
 
         let fs_manager = FsMng::new(&path_config);
-
-        let version = ManagedVersion::new(tag.clone(), tag, kind, dir_name.clone());
         fs_manager.remove_version(&version).unwrap();
 
         tmp_dir
             .child(".local/share/game-compatibility-manager/versions/wine-ge")
-            .child(&dir_name)
-            .assert(predicates::path::missing());
+            .child(version.directory_name())
+            .assert(path::missing());
 
         drop(fs_manager);
         tmp_dir.close().unwrap();
@@ -429,8 +439,8 @@ mod tests {
     #[test]
     fn migrate_proton_version_in_steam_dir() {
         let tmp_dir = TempDir::new().unwrap();
-        let version = Version::new("6.20-GE-1", TagKind::Proton);
-        let source_path = PathBuf::from(tmp_dir.join(".local/share/Steam/compatibilitytools.d/Proton-6.20-GE-1"));
+        let version = fixture::version::v6_20_1_proton();
+        let source_path = tmp_dir.join(".local/share/Steam/compatibilitytools.d/Proton-6.20-GE-1");
         fs::create_dir_all(&source_path).unwrap();
 
         let path_cfg = MockPathConfig::new(PathBuf::from(tmp_dir.path()));
@@ -442,11 +452,11 @@ mod tests {
         assert_eq!(version.directory_name(), &String::from("Proton-6.20-GE-1"));
 
         tmp_dir
-            .child(".local/share/Steam/compatibilitytools.d/GEH_PROTON_6.20-GE-1")
-            .assert(predicates::path::missing());
+            .child(".local/share/Steam/compatibilitytools.d/GE-MAN_PROTON_6.20-GE-1_L6.20-GE-1")
+            .assert(path::missing());
         tmp_dir
             .child(".local/share/Steam/compatibilitytools.d/Proton-6.20-GE-1")
-            .assert(predicates::path::exists());
+            .assert(path::exists());
 
         drop(fs_mng);
         tmp_dir.close().unwrap();
@@ -455,25 +465,25 @@ mod tests {
     #[test]
     fn migrate_proton_version_present_in_random_directory() {
         let tmp_dir = TempDir::new().unwrap();
-        let source_path = PathBuf::from(tmp_dir.join("some/dir/Proton-6.20-GE-1"));
-        let version = Version::new("6.20-GE-1", TagKind::Proton);
+        let source_path = tmp_dir.join("some/dir/Proton-6.20-GE-1");
+        let version = fixture::version::v6_20_1_proton();
         fs::create_dir_all(&source_path).unwrap();
         fs::create_dir_all(tmp_dir.join(".steam/root/compatibilitytools.d")).unwrap();
 
         let path_cfg = MockPathConfig::new(PathBuf::from(tmp_dir.path()));
         let fs_mng = FsMng::new(&path_cfg);
 
-        let version = fs_mng.migrate_folder(version, &source_path).unwrap();
-        assert_eq!(version.tag(), &Tag::from("6.20-GE-1"));
-        assert_eq!(version.kind(), &TagKind::Proton);
-        assert_eq!(version.directory_name(), &String::from("GEH_PROTON_6.20-GE-1"));
+        let managed_version = fs_mng.migrate_folder(version.clone(), &source_path).unwrap();
+        assert_eq!(managed_version.tag(), version.tag());
+        assert_eq!(managed_version.kind(), version.kind());
+        assert_eq!(managed_version.directory_name(), "GE-MAN_PROTON_6.20-GE-1_L6.20-GE-1");
 
         tmp_dir
             .child(".steam/root/compatibilitytools.d/Proton-6.20-GE-1")
-            .assert(predicates::path::missing());
+            .assert(path::missing());
         tmp_dir
-            .child(".steam/root/compatibilitytools.d/GEH_PROTON_6.20-GE-1")
-            .assert(predicates::path::exists());
+            .child(".steam/root/compatibilitytools.d/GE-MAN_PROTON_6.20-GE-1_L6.20-GE-1")
+            .assert(path::exists());
 
         drop(fs_mng);
         tmp_dir.close().unwrap();
@@ -482,8 +492,8 @@ mod tests {
     #[test]
     fn migrate_wine_version_in_lutris_directory() {
         let tmp_dir = TempDir::new().unwrap();
-        let source_path = PathBuf::from(tmp_dir.join(".local/share/lutris/runners/wine/Wine-6.20-GE-1"));
-        let version = Version::new("6.20-GE-1", TagKind::wine());
+        let source_path = tmp_dir.join(".local/share/lutris/runners/wine/Wine-6.20-GE-1");
+        let version = fixture::version::v6_20_1_wine();
         fs::create_dir_all(&source_path).unwrap();
         fs::create_dir_all(tmp_dir.join(".local/share/lutris/runners/wine")).unwrap();
 
@@ -496,11 +506,11 @@ mod tests {
         assert_eq!(version.directory_name(), &String::from("Wine-6.20-GE-1"));
 
         tmp_dir
-            .child(".local/share/lutris/runners/wine/GEH_Wine_6.20-GE-1")
-            .assert(predicates::path::missing());
+            .child(".local/share/lutris/runners/wine/GE-MAN_Wine_6.20-GE-1_L6.20-GE-1")
+            .assert(path::missing());
         tmp_dir
             .child(".local/share/lutris/runners/wine/Wine-6.20-GE-1")
-            .assert(predicates::path::exists());
+            .assert(path::exists());
 
         drop(fs_mng);
         tmp_dir.close().unwrap();
@@ -509,25 +519,25 @@ mod tests {
     #[test]
     fn migrate_wine_version_in_random_directory() {
         let tmp_dir = TempDir::new().unwrap();
-        let source_path = PathBuf::from(tmp_dir.join("some/dir/Wine-6.20-GE-1"));
-        let version = Version::new("6.20-GE-1", TagKind::wine());
+        let source_path = tmp_dir.join("some/dir/Wine-6.20-GE-1");
+        let version = fixture::version::v6_20_1_wine();
         fs::create_dir_all(&source_path).unwrap();
         fs::create_dir_all(tmp_dir.join(".local/share/lutris/runners/wine")).unwrap();
 
         let path_cfg = MockPathConfig::new(PathBuf::from(tmp_dir.path()));
         let fs_mng = FsMng::new(&path_cfg);
 
-        let version = fs_mng.migrate_folder(version, &source_path).unwrap();
-        assert_eq!(version.tag(), &Tag::from("6.20-GE-1"));
-        assert_eq!(version.kind(), &TagKind::wine());
-        assert_eq!(version.directory_name(), &String::from("GEH_WINE_6.20-GE-1"));
+        let managed_version = fs_mng.migrate_folder(version.clone(), &source_path).unwrap();
+        assert_eq!(managed_version.tag(), version.tag());
+        assert_eq!(managed_version.kind(), version.kind());
+        assert_eq!(managed_version.directory_name(), "GE-MAN_WINE_6.20-GE-1_L6.20-GE-1");
 
         tmp_dir
             .child(".local/share/lutris/runners/wine/Wine-6.20-GE-1")
-            .assert(predicates::path::missing());
+            .assert(path::missing());
         tmp_dir
-            .child(".local/share/lutris/runners/wine/GEH_WINE_6.20-GE-1")
-            .assert(predicates::path::exists());
+            .child(".local/share/lutris/runners/wine/GE-MAN_WINE_6.20-GE-1_L6.20-GE-1")
+            .assert(path::exists());
 
         drop(fs_mng);
         tmp_dir.close().unwrap();
@@ -537,7 +547,7 @@ mod tests {
     fn migrate_lol_version_in_lutris_directory() {
         let tmp_dir = TempDir::new().unwrap();
         let source_path = PathBuf::from(tmp_dir.join(".local/share/lutris/runners/wine/Wine-LoL-6.20-GE-1"));
-        let version = Version::new("6.20-GE-1", TagKind::lol());
+        let version = fixture::version::v6_20_1_lol();
         fs::create_dir_all(&source_path).unwrap();
         fs::create_dir_all(tmp_dir.join(".local/share/lutris/runners/wine")).unwrap();
 
@@ -551,10 +561,10 @@ mod tests {
 
         tmp_dir
             .child(".local/share/lutris/runners/wine/GEH_LoL_Wine_6.20-GE-1")
-            .assert(predicates::path::missing());
+            .assert(path::missing());
         tmp_dir
             .child(".local/share/lutris/runners/wine/Wine-LoL-6.20-GE-1")
-            .assert(predicates::path::exists());
+            .assert(path::exists());
 
         drop(fs_mng);
         tmp_dir.close().unwrap();
@@ -564,24 +574,24 @@ mod tests {
     fn migrate_lol_version_in_random_directory() {
         let tmp_dir = TempDir::new().unwrap();
         let source_path = PathBuf::from(tmp_dir.join("some/dir/Wine-LoL-6.20-GE-1"));
-        let version = Version::new("6.20-GE-1", TagKind::lol());
+        let version = fixture::version::v6_20_1_lol();
         fs::create_dir_all(&source_path).unwrap();
         fs::create_dir_all(tmp_dir.join(".local/share/lutris/runners/wine")).unwrap();
 
         let path_cfg = MockPathConfig::new(PathBuf::from(tmp_dir.path()));
         let fs_mng = FsMng::new(&path_cfg);
 
-        let version = fs_mng.migrate_folder(version, &source_path).unwrap();
-        assert_eq!(version.tag(), &Tag::from("6.20-GE-1"));
-        assert_eq!(version.kind(), &TagKind::lol());
-        assert_eq!(version.directory_name(), &String::from("GEH_LOL_WINE_6.20-GE-1"));
+        let managed_version = fs_mng.migrate_folder(version.clone(), &source_path).unwrap();
+        assert_eq!(managed_version.tag(), version.tag());
+        assert_eq!(managed_version.kind(), version.kind());
+        assert_eq!(managed_version.directory_name(), "GE-MAN_LOL_WINE_6.20-GE-1_L6.20-GE-1");
 
         tmp_dir
             .child(".local/share/lutris/runners/wine/Wine-LoL-6.20-GE-1")
-            .assert(predicates::path::missing());
+            .assert(path::missing());
         tmp_dir
-            .child(".local/share/lutris/runners/wine/GEH_LOL_WINE_6.20-GE-1")
-            .assert(predicates::path::exists());
+            .child(".local/share/lutris/runners/wine/GE-MAN_LOL_WINE_6.20-GE-1_L6.20-GE-1")
+            .assert(path::exists());
 
         drop(fs_mng);
         tmp_dir.close().unwrap();
@@ -592,7 +602,6 @@ mod tests {
         let tmp_dir = TempDir::new().unwrap();
         let steam_cfg_dir = tmp_dir.join(".steam/root/config");
         let steam_cfg_file = steam_cfg_dir.join("config.vdf");
-        let proton_dir_name = "Proton-6.20-GE-1";
         fs::create_dir_all(&steam_cfg_dir).unwrap();
         fs::copy("test_resources/assets/config.vdf", &steam_cfg_file).unwrap();
 
@@ -606,15 +615,15 @@ mod tests {
         .unwrap();
         let fs_mng = FsMng::new(&path_cfg);
 
-        let version = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, proton_dir_name);
-        fs_mng.apply_to_app_config(&version).unwrap();
+        let managed_version = fixture::managed_version::v6_20_1_proton();
+        fs_mng.apply_to_app_config(&managed_version).unwrap();
 
         let modified_config = SteamConfig::create_copy(&steam_cfg_file).unwrap();
-        assert_eq!(modified_config.proton_version(), proton_dir_name);
+        assert_eq!(modified_config.proton_version(), managed_version.directory_name());
 
         tmp_dir
             .child(path_cfg.app_config_backup_file(None, &TagKind::Proton))
-            .assert(predicates::path::exists());
+            .assert(path::exists());
 
         drop(fs_mng);
         tmp_dir.close().unwrap();
@@ -625,7 +634,6 @@ mod tests {
         let tmp_dir = TempDir::new().unwrap();
         let cfg_dir = tmp_dir.join(".config/lutris/runners");
         let cfg_file = cfg_dir.join("wine.yml");
-        let dir_name = "Wine-6.20-GE-1";
         fs::create_dir_all(&cfg_dir).unwrap();
         fs::copy("test_resources/assets/wine.yml", &cfg_file).unwrap();
 
@@ -639,15 +647,15 @@ mod tests {
         .unwrap();
         let fs_mng = FsMng::new(&path_cfg);
 
-        let version = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::wine(), dir_name);
-        fs_mng.apply_to_app_config(&version).unwrap();
+        let managed_version = fixture::managed_version::v6_20_1_wine();
+        fs_mng.apply_to_app_config(&managed_version).unwrap();
 
         let modified_config = LutrisConfig::create_copy(&cfg_file).unwrap();
-        assert_eq!(modified_config.wine_version(), dir_name);
+        assert_eq!(modified_config.wine_version(), managed_version.directory_name());
 
         tmp_dir
             .child(path_cfg.app_config_backup_file(None, &TagKind::wine()))
-            .assert(predicates::path::exists());
+            .assert(path::exists());
 
         drop(fs_mng);
         tmp_dir.close().unwrap();
@@ -658,7 +666,6 @@ mod tests {
         let tmp_dir = TempDir::new().unwrap();
         let cfg_dir = tmp_dir.join(".config/lutris/runners");
         let cfg_file = cfg_dir.join("wine.yml");
-        let dir_name = "Wine-6.21-GE-1";
         fs::create_dir_all(&cfg_dir).unwrap();
 
         let path_cfg = MockPathConfig::new(PathBuf::from(tmp_dir.path()));
@@ -671,15 +678,15 @@ mod tests {
         .unwrap();
         let fs_mng = FsMng::new(&path_cfg);
 
-        let version = ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::wine(), dir_name);
-        fs_mng.apply_to_app_config(&version).unwrap();
+        let managed_version = fixture::managed_version::v6_21_1_wine();
+        fs_mng.apply_to_app_config(&managed_version).unwrap();
 
         let modified_config = LutrisConfig::create_copy(&cfg_file).unwrap();
-        assert_eq!(modified_config.wine_version(), dir_name);
+        assert_eq!(modified_config.wine_version(), managed_version.directory_name());
 
         tmp_dir
             .child(path_cfg.app_config_backup_file(None, &TagKind::wine()))
-            .assert(predicates::path::missing());
+            .assert(path::missing());
 
         drop(fs_mng);
         tmp_dir.close().unwrap();
@@ -694,20 +701,20 @@ mod tests {
         let path_cfg = MockPathConfig::new(PathBuf::from(tmp_dir.path()));
         let fs_mng = FsMng::new(&path_cfg);
 
-        let src = Version::new("6.19-GE-1", TagKind::Proton);
+        let src_version = fixture::version::v6_19_1_proton();
         let src_tar = File::open("test_resources/assets/Proton-6.19-GE-1.tar.gz").unwrap();
-        let dst = Version::new("6.20-GE-2", TagKind::Proton);
+        let dst_version = fixture::version::v6_20_2_proton();
         let dst_tar = File::open("test_resources/assets/Proton-6.20-GE-2.tar.gz").unwrap();
 
-        let src = fs_mng.setup_version(src, Box::new(src_tar)).unwrap();
-        let dst = fs_mng.setup_version(dst, Box::new(dst_tar)).unwrap();
+        let src_managed_version = fs_mng.setup_version(src_version, Box::new(src_tar)).unwrap();
+        let dst_managed_version = fs_mng.setup_version(dst_version, Box::new(dst_tar)).unwrap();
 
         tmp_dir
             .child(".steam/root/compatibilitytools.d/Proton-6.19-GE-1")
-            .assert(predicates::path::exists());
+            .assert(path::exists());
         tmp_dir
             .child(".steam/root/compatibilitytools.d/Proton-6.20-GE-2")
-            .assert(predicates::path::exists());
+            .assert(path::exists());
 
         fs::copy(
             tmp_dir.join(".steam/root/compatibilitytools.d/Proton-6.19-GE-1/hello-world.txt"),
@@ -717,13 +724,15 @@ mod tests {
 
         tmp_dir
             .child(".steam/root/compatibilitytools.d/Proton-6.19-GE-1/user_settings.py")
-            .assert(predicates::path::exists());
+            .assert(path::exists());
 
-        fs_mng.copy_user_settings(&src, &dst).unwrap();
+        fs_mng
+            .copy_user_settings(&src_managed_version, &dst_managed_version)
+            .unwrap();
 
         tmp_dir
             .child(".steam/root/compatibilitytools.d/Proton-6.20-GE-2/user_settings.py")
-            .assert(predicates::path::exists());
+            .assert(path::exists());
 
         tmp_dir.close().unwrap();
     }

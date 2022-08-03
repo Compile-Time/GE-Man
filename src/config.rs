@@ -27,8 +27,8 @@ impl GeManConfig {
         let steam_root_path = steam_root_path_str.clone().map(PathBuf::from);
 
         GeManConfig {
-            steam_root_path_str: steam_root_path_str,
-            steam_root_path: steam_root_path,
+            steam_root_path_str,
+            steam_root_path,
         }
     }
 

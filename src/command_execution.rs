@@ -17,6 +17,7 @@ use crate::command_input::{
 use crate::compat_tool_app::ApplicationConfig;
 use crate::data::{ManagedVersion, ManagedVersions};
 use crate::filesystem::FilesystemManager;
+use crate::label::Label;
 use crate::message;
 use crate::progress::{DownloadProgressTracker, ExtractionProgressTracker};
 use crate::version::{Version, Versioned};
@@ -37,10 +38,11 @@ impl NewAndManagedVersions {
     }
 
     pub fn single_add(added_version: ManagedVersion, managed_versions: ManagedVersions) -> Self {
-        Self {
-            new_versions: ManagedVersions::new(vec![added_version]),
-            managed_versions,
-        }
+        NewAndManagedVersions::new(ManagedVersions::new(vec![added_version]), managed_versions)
+    }
+
+    pub fn no_change(managed_versions: ManagedVersions) -> Self {
+        NewAndManagedVersions::new(ManagedVersions::default(), managed_versions)
     }
 }
 
@@ -259,26 +261,39 @@ impl<'a> CommandHandler<'a> {
         }
     }
 
-    pub fn add(&self, stdout: &mut impl Write, input: AddCommandInput) -> anyhow::Result<NewAndManagedVersions> {
+    pub fn add(&self, stderr: &mut impl Write, input: AddCommandInput) -> anyhow::Result<NewAndManagedVersions> {
         let AddCommandInput {
             version,
             skip_checksum,
             mut managed_versions,
         } = input;
 
-        let version = match version {
+        let mut version = match version {
             GivenVersion::Explicit { version } => version,
             GivenVersion::Latest { kind } => match self.ge_downloader.fetch_release(None, kind) {
-                Ok(release) => Version::new(release.tag_name, kind),
+                Ok(release) => Version::new(None, release.tag_name, kind),
                 Err(err) => {
-                    return Err(anyhow!(err).context(r#"Could not get latest tag for tagless "add" operation."#))
+                    return Err(anyhow!(err).context(r#"Could not get latest tag for "tagless" add operation."#))
                 }
             },
         };
 
-        if let Some(existing_version) = managed_versions.find_version(&version) {
-            writeln!(stdout, "Version {} is already managed", existing_version)?;
-            return Ok(NewAndManagedVersions::single_add(existing_version, managed_versions));
+        // FIXME: This code is 1:1 used in the migrate method. It could be deduplicated by creating an enum that
+        //  either holds the Version with a label set or the NewAndManagedVersions struct.
+        if let Some(label) = version.label() {
+            if let Some(existing_version) = managed_versions.find_by_label(label, version.kind()) {
+                writeln!(
+                    stderr,
+                    r#"A version with the label "{}" already exists, please provide a different label"#,
+                    existing_version.label().str()
+                )?;
+                return Ok(NewAndManagedVersions::no_change(managed_versions));
+            }
+        } else {
+            let existing_versions = managed_versions.find_all_by_tag_and_kind(version.tag(), version.kind());
+            let labels: Vec<Label> = existing_versions.into_iter().map(|v| v.label().clone()).collect();
+            let label = Label::create_latest_version_label(version.tag().str(), labels)?;
+            version.set_label(Some(label));
         }
 
         let download_tracker = Box::new(DownloadProgressTracker::default());
@@ -315,9 +330,9 @@ impl<'a> CommandHandler<'a> {
         } = assets;
 
         if skip_checksum {
-            writeln!(stdout, "Skipping checksum comparison").unwrap();
+            writeln!(stderr, "Skipping checksum comparison").unwrap();
         } else {
-            write!(stdout, "Performing checksum comparison").unwrap();
+            write!(stderr, "Performing checksum comparison").unwrap();
             let checksum = checksum.unwrap();
 
             let result = archive::checksums_match(&compressed_tar.compressed_content, checksum.checksum.as_bytes());
@@ -325,7 +340,7 @@ impl<'a> CommandHandler<'a> {
             if !result {
                 bail!("Checksum comparison failed: Checksum generated from downloaded archive does not match downloaded expected checksum");
             } else {
-                writeln!(stdout, ": Checksums match").unwrap();
+                writeln!(stderr, ": Checksums match").unwrap();
             }
         }
 
@@ -435,15 +450,32 @@ impl<'a> CommandHandler<'a> {
         }
     }
 
-    pub fn migrate(&self, input: MigrationCommandInput) -> anyhow::Result<NewAndManagedVersions> {
+    pub fn migrate(
+        &self,
+        stderr: &mut impl Write,
+        input: MigrationCommandInput,
+    ) -> anyhow::Result<NewAndManagedVersions> {
         let MigrationCommandInput {
             source_path,
-            version,
+            mut version,
             mut managed_versions,
         } = input;
 
-        if managed_versions.find_version(&version).is_some() {
-            bail!("Given version to migrate already exists as a managed version");
+        let existing_versions = managed_versions.find_all_by_tag_and_kind(version.tag(), version.kind());
+        if let Some(label) = version.label() {
+            if let Some(existing_version) = existing_versions.find_by_label(label, version.kind()) {
+                writeln!(
+                    stderr,
+                    "A version with the label {} already exists, please provide a different label",
+                    existing_version.label().str()
+                )
+                .unwrap();
+                return Ok(NewAndManagedVersions::no_change(managed_versions));
+            }
+        } else {
+            let labels: Vec<Label> = existing_versions.into_iter().map(|v| v.label().clone()).collect();
+            let label = Label::create_latest_version_label(version.tag().str(), labels)?;
+            version.set_label(Some(label));
         }
 
         let version = self
@@ -580,7 +612,7 @@ impl<'a> CommandHandler<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use std::path::PathBuf;
     use std::{fs, io};
 
@@ -589,6 +621,7 @@ mod tests {
     use mockall::mock;
 
     use crate::filesystem::MockFilesystemManager;
+    use crate::fixture;
 
     use super::*;
 
@@ -655,9 +688,9 @@ mod tests {
         let mut stdout = AssertLines::new();
         let mut stderr = AssertLines::new();
         let managed_versions = ManagedVersions::new(vec![
-            ManagedVersion::new("GE-Proton7-22", "GE-Proton7-22", TagKind::Proton, ""),
-            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, ""),
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
+            fixture::managed_version::v7_22_proton(),
+            fixture::managed_version::v6_21_1_proton(),
+            fixture::managed_version::v6_20_1_proton(),
         ]);
         let input = ListCommandInput::new(
             TagKind::Proton,
@@ -684,9 +717,9 @@ mod tests {
         let mut stdout = AssertLines::new();
         let mut stderr = AssertLines::new();
         let managed_versions = ManagedVersions::new(vec![
-            ManagedVersion::new("GE-Proton7-22", "GE-Proton7-22", TagKind::Proton, "GE-Proton7-22"),
-            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, "6.21-GE-1"),
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "6.20-GE-1"),
+            fixture::managed_version::v7_22_proton(),
+            fixture::managed_version::v6_21_1_proton(),
+            fixture::managed_version::v6_20_1_proton(),
         ]);
         let input = ListCommandInput::new(
             TagKind::Proton,
@@ -713,9 +746,9 @@ mod tests {
         let mut stdout = AssertLines::new();
         let mut stderr = AssertLines::new();
         let managed_versions = ManagedVersions::new(vec![
-            ManagedVersion::new("GE-Proton7-22", "GE-Proton7-22", TagKind::Proton, "GE-Proton7-22"),
-            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, "6.21-GE-1"),
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "6.20-GE-1"),
+            fixture::managed_version::v7_22_proton(),
+            fixture::managed_version::v6_21_1_proton(),
+            fixture::managed_version::v6_20_1_proton(),
         ]);
         let input = ListCommandInput::new(
             TagKind::Proton,
@@ -744,9 +777,9 @@ mod tests {
         let mut stdout = AssertLines::new();
         let mut stderr = AssertLines::new();
         let managed_versions = ManagedVersions::new(vec![
-            ManagedVersion::new("GE-Proton7-22", "GE-Proton7-22", TagKind::Proton, "GE-Proton7-22"),
-            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, "6.21-GE-1"),
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "6.20-GE-1"),
+            fixture::managed_version::v7_22_proton(),
+            fixture::managed_version::v6_21_1_proton(),
+            fixture::managed_version::v6_20_1_proton(),
         ]);
         let input = ListCommandInput::new(
             TagKind::Proton,
@@ -853,11 +886,11 @@ mod tests {
         fs_mng
             .expect_setup_version()
             .once()
-            .returning(|_, _| Ok(ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "")));
+            .returning(|_, _| Ok(fixture::managed_version::v6_20_1_proton()));
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
-        let version = Version::new("6.20-GE-1", TagKind::Proton);
+        let version = Version::new(None, "6.20-GE-1", TagKind::Proton);
         let managed_versions = ManagedVersions::new(Vec::new());
         let input = AddCommandInput::new(GivenVersion::Explicit { version }, true, managed_versions);
 
@@ -891,11 +924,11 @@ mod tests {
         fs_mng
             .expect_setup_version()
             .once()
-            .returning(|_, _| Ok(ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "")));
+            .returning(|_, _| Ok(fixture::managed_version::v6_20_1_proton()));
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
-        let version = Version::new("6.20-GE-1", TagKind::Proton);
+        let version = Version::new(None, "6.20-GE-1", TagKind::Proton);
         let managed_versions = ManagedVersions::new(Vec::new());
         let input = AddCommandInput::new(GivenVersion::Explicit { version }, false, managed_versions);
 
@@ -906,33 +939,40 @@ mod tests {
     }
 
     #[test]
-    fn add_specific_version_which_is_already_managed_again_expect_message_about_already_being_managed() {
+    fn add_version_with_a_label_of_an_existing_version_expect_message_about_already_being_managed() {
         let ge_downloader = MockDownloader::new();
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_setup_version().never();
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
-        let version = Version::new("6.20-GE-1", TagKind::Proton);
-        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new(
-            "6.20-GE-1",
-            "6.20-GE-1",
-            TagKind::Proton,
-            "6-20-GE-1",
-        )]);
-        let input = AddCommandInput::new(GivenVersion::Explicit { version }, false, managed_versions);
+        let existing_version = fixture::managed_version::v6_20_1_proton_custom_label();
+        let version_to_add = Version::new(Some(existing_version.label().clone()), "6.21-GE-2", TagKind::Proton);
+        let managed_versions = ManagedVersions::new(vec![existing_version]);
+        let input = AddCommandInput::new(
+            GivenVersion::Explicit {
+                version: version_to_add,
+            },
+            false,
+            managed_versions,
+        );
 
         let mut stdout = AssertLines::new();
         let result = command_handler.add(&mut stdout, input);
 
         assert!(result.is_ok());
-        stdout.assert_line(0, "Version 6.20-GE-1 (Proton) is already managed");
+        stdout.assert_line(
+            0,
+            r#"A version with the label "custom-label" already exists, please provide a different label"#,
+        );
     }
 
+    // TODO: The implementation for this use case needs to be re-implemented. Since we want to allow adding multiple
+    //  versions with labels adding the latest version multiple times should be possible. However, for automation
+    //  someone might want this use case to behave like before: Do nothing when the version is already managed.
     #[test]
     fn add_latest_version_which_is_already_managed_again_expect_message_about_already_being_managed() {
-        let tag = "6.20-GE-1";
-        let managed_versions = ManagedVersions::new(vec![ManagedVersion::new(tag, tag, TagKind::Proton, "")]);
+        let managed_versions = ManagedVersions::new(vec![fixture::managed_version::v6_20_1_proton()]);
 
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_setup_version().never();
@@ -941,15 +981,11 @@ mod tests {
         ge_downloader
             .expect_fetch_release()
             .once()
-            .returning(move |_, _| Ok(GeRelease::new(String::from(tag), Vec::new())));
+            .returning(move |_, _| Ok(GeRelease::new(String::from("6.20-GE-1"), Vec::new())));
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
-        let input = AddCommandInput::new(
-            GivenVersion::Latest { kind: TagKind::Proton },
-            false,
-            managed_versions.clone(),
-        );
+        let input = AddCommandInput::new(GivenVersion::Latest { kind: TagKind::Proton }, false, managed_versions);
 
         let mut stdout = AssertLines::new();
         let result = command_handler.add(&mut stdout, input);
@@ -965,10 +1001,11 @@ mod tests {
         fs_mng.expect_remove_version().once().returning(|_| Ok(()));
 
         let steam_config_path = PathBuf::from("test_resources/assets/config.vdf");
-        let version_to_remove = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "");
+        let version_to_remove = fixture::managed_version::v6_20_1_proton();
         let managed_versions = ManagedVersions::new(vec![
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "6-20-GE-1"),
-            ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, "6-21-GE-2"),
+            fixture::managed_version::v6_20_1_proton(),
+            fixture::managed_version::v6_21_1_proton(),
+            fixture::managed_version::v6_21_2_proton(),
         ]);
         let input = RemoveCommandInput::new(managed_versions, version_to_remove.clone(), steam_config_path, false);
 
@@ -977,7 +1014,7 @@ mod tests {
         assert_eq!(removed_and_managed_versions.managed_versions.len(), 1);
         assert_eq!(
             removed_and_managed_versions.managed_versions,
-            ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, "")])
+            ManagedVersions::new(vec![fixture::managed_version::v6_21_2_proton()])
         );
         assert_eq!(removed_and_managed_versions.removed_versions[0], version_to_remove)
     }
@@ -989,12 +1026,12 @@ mod tests {
         fs_mng.expect_remove_version().never();
 
         let managed_versions = ManagedVersions::new(vec![
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "6.20-GE-1"),
-            ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, "Proton-6.21-GE-2"),
+            fixture::managed_version::v6_20_1_proton(),
+            fixture::managed_version::v6_21_2_proton(),
         ]);
 
         let steam_config_path = PathBuf::from("test_resources/assets/config.vdf");
-        let version_to_remove = ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, "Proton-6.21-GE-2");
+        let version_to_remove = fixture::managed_version::v6_21_2_proton();
         let input = RemoveCommandInput::new(managed_versions, version_to_remove, steam_config_path, false);
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
@@ -1015,10 +1052,10 @@ mod tests {
         fs_mng.expect_remove_version().never();
 
         let steam_config_path = PathBuf::from("test_resources/assets/config.vdf");
-        let version_to_remove = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "");
+        let version_to_remove = fixture::managed_version::v6_20_1_proton();
         let managed_versions = ManagedVersions::new(vec![
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "6-20-GE-1"),
-            ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, "6-21-GE-2"),
+            fixture::managed_version::v6_20_1_proton(),
+            fixture::managed_version::v6_21_2_proton(),
         ]);
         let input = RemoveCommandInput::new(managed_versions, version_to_remove.clone(), steam_config_path, true);
 
@@ -1027,7 +1064,7 @@ mod tests {
         assert_eq!(removed_and_managed_versions.managed_versions.len(), 1);
         assert_eq!(
             removed_and_managed_versions.managed_versions,
-            ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, "")])
+            ManagedVersions::new(vec![fixture::managed_version::v6_21_2_proton()])
         );
         assert_eq!(removed_and_managed_versions.removed_versions[0], version_to_remove)
     }
@@ -1116,17 +1153,14 @@ mod tests {
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
+        let mut stderr = AssertLines::new();
         let input = MigrationCommandInput::new(
             PathBuf::from("invalid-path"),
-            Version::new("6.20-GE-1", TagKind::Proton),
-            ManagedVersions::new(vec![ManagedVersion::new(
-                "6.20-GE-1",
-                "6.20-GE-1",
-                TagKind::Proton,
-                "6-20-GE-1",
-            )]),
+            Version::new(None, "6.20-GE-1", TagKind::Proton),
+            ManagedVersions::new(vec![fixture::managed_version::v6_20_1_proton()]),
         );
-        let result = command_handler.migrate(input);
+        let result = command_handler.migrate(&mut stderr, input);
+        stderr.assert_empty();
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -1140,25 +1174,23 @@ mod tests {
     fn migrate_not_present_version() {
         let ge_downloader = MockDownloader::new();
         let mut fs_mng = MockFilesystemManager::new();
-        fs_mng.expect_migrate_folder().once().returning(|_, _| {
-            Ok(ManagedVersion::new(
-                "6.20-GE-1",
-                "6.20-GE-1",
-                TagKind::Proton,
-                "Proton-6.20-GE-1",
-            ))
-        });
+        fs_mng
+            .expect_migrate_folder()
+            .once()
+            .returning(|_, _| Ok(fixture::managed_version::v6_20_1_proton()));
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
+        let mut stderr = AssertLines::new();
         let input = MigrationCommandInput::new(
             PathBuf::from("valid-path"),
-            Version::new("6.20-GE-1", TagKind::Proton),
+            Version::new(None, "6.20-GE-1", TagKind::Proton),
             ManagedVersions::default(),
         );
-        let new_and_managed_versions = command_handler.migrate(input).unwrap();
+        let new_and_managed_versions = command_handler.migrate(&mut stderr, input).unwrap();
+        stderr.assert_empty();
 
-        let expected_version = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "Proton-6.20-GE-1");
+        let expected_version = fixture::managed_version::v6_20_1_proton();
         assert_eq!(new_and_managed_versions.managed_versions.len(), 1);
         assert_eq!(new_and_managed_versions.managed_versions[0], expected_version);
         assert_eq!(new_and_managed_versions.new_versions[0], expected_version);
@@ -1175,12 +1207,14 @@ mod tests {
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
+        let mut stderr = AssertLines::new();
         let input = MigrationCommandInput::new(
             PathBuf::from("valid-path"),
-            Version::new("6.20-GE-1", TagKind::Proton),
+            Version::new(None, "6.20-GE-1", TagKind::Proton),
             ManagedVersions::default(),
         );
-        let result = command_handler.migrate(input);
+        let result = command_handler.migrate(&mut stderr, input);
+        stderr.assert_empty();
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -1195,7 +1229,7 @@ mod tests {
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
-        let version = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "6-20-GE-1");
+        let version = fixture::managed_version::v6_20_1_proton();
         let input = ApplyCommandInput::new(version);
 
         let mut stdout = AssertLines::new();
@@ -1203,7 +1237,7 @@ mod tests {
 
         stdout.assert_line(
             0,
-            &message::apply::modifying_config(&Version::new("6.20-GE-1", TagKind::Proton)),
+            &message::apply::modifying_config(&Version::new(None, "6.20-GE-1", TagKind::Proton)),
         );
         stdout.assert_line(1, message::apply::modify_config_success(&TagKind::Proton));
     }
@@ -1216,7 +1250,7 @@ mod tests {
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
-        let version = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "6-20-GE-1");
+        let version = fixture::managed_version::v6_20_1_proton();
         let input = ApplyCommandInput::new(version);
 
         let mut stdout = AssertLines::new();
@@ -1224,7 +1258,7 @@ mod tests {
 
         stdout.assert_line(
             0,
-            &message::apply::modifying_config(&Version::new("6.20-GE-1", TagKind::Proton)),
+            &message::apply::modifying_config(&Version::new(None, "6.20-GE-1", TagKind::Proton)),
         );
         stdout.assert_line(1, message::apply::modify_config_success(&TagKind::Proton));
     }
@@ -1240,7 +1274,7 @@ mod tests {
 
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
-        let version = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "6-20-GE-1");
+        let version = fixture::managed_version::v6_20_1_proton();
         let input = ApplyCommandInput::new(version);
 
         let mut stdout = AssertLines::new();
@@ -1256,8 +1290,8 @@ mod tests {
         let mut fs_mng = MockFilesystemManager::new();
         fs_mng.expect_copy_user_settings().once().returning(|_, _| Ok(()));
 
-        let src_version = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "");
-        let dst_version = ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, "");
+        let src_version = fixture::managed_version::v6_20_1_proton();
+        let dst_version = fixture::managed_version::v6_21_1_proton();
         let input = CopyUserSettingsCommandInput::new(src_version, dst_version);
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
@@ -1279,8 +1313,8 @@ mod tests {
             .once()
             .returning(|_, _| bail!("Mocked error"));
 
-        let src_version = ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "");
-        let dst_version = ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, "");
+        let src_version = fixture::managed_version::v6_20_1_proton();
+        let dst_version = fixture::managed_version::v6_21_1_proton();
         let input = CopyUserSettingsCommandInput::new(src_version, dst_version);
         let command_handler = CommandHandler::new(&ge_downloader, &fs_mng);
 
@@ -1304,18 +1338,18 @@ mod tests {
         let mut stderr = AssertLines::new();
         let app_config = ApplicationConfig::new(TagKind::Proton, "GE-Proton7-20".to_string());
         let input: CleanCommandInput<Version, Version> = CleanCommandInput::new(
-            Some(Version::new("6.21-GE-2", TagKind::Proton)),
+            Some(Version::new(None, "6.21-GE-2", TagKind::Proton)),
             None,
             None,
             ManagedVersions::new(vec![
-                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::lol(), ""),
-                ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::lol(), ""),
-                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::wine(), ""),
-                ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::wine(), ""),
-                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, ""),
-                ManagedVersion::new("6.22-GE-1", "6.22-GE-1", TagKind::Proton, ""),
+                fixture::managed_version::v6_20_1_lol(),
+                fixture::managed_version::v6_21_1_lol(),
+                fixture::managed_version::v6_20_1_wine(),
+                fixture::managed_version::v6_21_1_wine(),
+                fixture::managed_version::v6_20_1_proton(),
+                fixture::managed_version::v6_21_1_proton(),
+                fixture::managed_version::v6_21_2_proton(),
+                fixture::managed_version::v6_22_1_proton(),
             ]),
             app_config,
             false,
@@ -1326,12 +1360,12 @@ mod tests {
         assert_eq!(removed_and_managed_versions.managed_versions.len(), 6);
         assert_eq!(removed_and_managed_versions.removed_versions.len(), 2);
         vec![
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::lol(), ""),
-            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::lol(), ""),
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::wine(), ""),
-            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::wine(), ""),
-            ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, ""),
-            ManagedVersion::new("6.22-GE-1", "6.22-GE-1", TagKind::Proton, ""),
+            fixture::managed_version::v6_20_1_lol(),
+            fixture::managed_version::v6_21_1_lol(),
+            fixture::managed_version::v6_20_1_wine(),
+            fixture::managed_version::v6_21_1_wine(),
+            fixture::managed_version::v6_21_2_proton(),
+            fixture::managed_version::v6_22_1_proton(),
         ]
         .iter()
         .for_each(|version| {
@@ -1340,8 +1374,8 @@ mod tests {
         assert_eq!(
             removed_and_managed_versions.removed_versions,
             ManagedVersions::new(vec![
-                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, ""),
+                fixture::managed_version::v6_20_1_proton(),
+                fixture::managed_version::v6_21_1_proton(),
             ])
         );
     }
@@ -1358,17 +1392,17 @@ mod tests {
         let app_config = ApplicationConfig::new(TagKind::Proton, "GE-Proton7-20".to_string());
         let input: CleanCommandInput<Version, Version> = CleanCommandInput::new(
             None,
-            Some(Version::new("6.19-GE-1", TagKind::Proton)),
-            Some(Version::new("6.22-GE-2", TagKind::Proton)),
+            Some(Version::new(None, "6.19-GE-1", TagKind::Proton)),
+            Some(Version::new(None, "6.22-GE-2", TagKind::Proton)),
             ManagedVersions::new(vec![
-                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::lol(), ""),
-                ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::lol(), ""),
-                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::wine(), ""),
-                ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::wine(), ""),
-                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, ""),
-                ManagedVersion::new("6.22-GE-1", "6.22-GE-1", TagKind::Proton, ""),
+                fixture::managed_version::v6_20_1_lol(),
+                fixture::managed_version::v6_21_1_lol(),
+                fixture::managed_version::v6_20_1_wine(),
+                fixture::managed_version::v6_21_1_wine(),
+                fixture::managed_version::v6_20_1_proton(),
+                fixture::managed_version::v6_21_1_proton(),
+                fixture::managed_version::v6_21_2_proton(),
+                fixture::managed_version::v6_22_1_proton(),
             ]),
             app_config,
             false,
@@ -1379,10 +1413,10 @@ mod tests {
         assert_eq!(removed_and_managed_versions.managed_versions.len(), 4);
         assert_eq!(removed_and_managed_versions.removed_versions.len(), 4);
         vec![
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::lol(), ""),
-            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::lol(), ""),
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::wine(), ""),
-            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::wine(), ""),
+            fixture::managed_version::v6_20_1_lol(),
+            fixture::managed_version::v6_21_1_lol(),
+            fixture::managed_version::v6_20_1_wine(),
+            fixture::managed_version::v6_21_1_wine(),
         ]
         .iter()
         .for_each(|version| {
@@ -1391,10 +1425,10 @@ mod tests {
         assert_eq!(
             removed_and_managed_versions.removed_versions,
             ManagedVersions::new(vec![
-                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, ""),
-                ManagedVersion::new("6.22-GE-1", "6.22-GE-1", TagKind::Proton, ""),
+                fixture::managed_version::v6_20_1_proton(),
+                fixture::managed_version::v6_21_1_proton(),
+                fixture::managed_version::v6_21_2_proton(),
+                fixture::managed_version::v6_22_1_proton(),
             ])
         );
     }
@@ -1420,14 +1454,14 @@ mod tests {
         let mut stderr = AssertLines::new();
         let app_config = ApplicationConfig::new(TagKind::Proton, "GE-Proton7-20".to_string());
         let input: CleanCommandInput<Version, Version> = CleanCommandInput::new(
-            Some(Version::new("6.21-GE-2", TagKind::Proton)),
+            Some(Version::new(None, "6.21-GE-2", TagKind::Proton)),
             None,
             None,
             ManagedVersions::new(vec![
-                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, ""),
-                ManagedVersion::new("6.22-GE-1", "6.22-GE-1", TagKind::Proton, ""),
+                fixture::managed_version::v6_20_1_proton(),
+                fixture::managed_version::v6_21_1_proton(),
+                fixture::managed_version::v6_21_2_proton(),
+                fixture::managed_version::v6_22_1_proton(),
             ]),
             app_config,
             false,
@@ -1437,9 +1471,9 @@ mod tests {
         assert_eq!(removed_and_managed_versions.managed_versions.len(), 3);
         assert_eq!(removed_and_managed_versions.removed_versions.len(), 1);
         vec![
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
-            ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, ""),
-            ManagedVersion::new("6.22-GE-1", "6.22-GE-1", TagKind::Proton, ""),
+            fixture::managed_version::v6_20_1_proton(),
+            fixture::managed_version::v6_21_2_proton(),
+            fixture::managed_version::v6_22_1_proton(),
         ]
         .iter()
         .for_each(|version| {
@@ -1447,7 +1481,7 @@ mod tests {
         });
         assert_eq!(
             removed_and_managed_versions.removed_versions,
-            ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, "")])
+            ManagedVersions::new(vec![fixture::managed_version::v6_21_1_proton()])
         );
 
         stderr.assert_count(2);
@@ -1467,17 +1501,17 @@ mod tests {
         let app_config = ApplicationConfig::new(TagKind::Proton, "GE-Proton7-20".to_string());
         let input: CleanCommandInput<Version, Version> = CleanCommandInput::new(
             None,
-            Some(Version::new("6.19-GE-1", TagKind::Proton)),
-            Some(Version::new("6.22-GE-2", TagKind::Proton)),
+            Some(Version::new(None, "6.19-GE-1", TagKind::Proton)),
+            Some(Version::new(None, "6.22-GE-2", TagKind::Proton)),
             ManagedVersions::new(vec![
-                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::lol(), ""),
-                ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::lol(), ""),
-                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::wine(), ""),
-                ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::wine(), ""),
-                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, ""),
-                ManagedVersion::new("6.22-GE-1", "6.22-GE-1", TagKind::Proton, ""),
+                fixture::managed_version::v6_20_1_lol(),
+                fixture::managed_version::v6_21_1_lol(),
+                fixture::managed_version::v6_20_1_wine(),
+                fixture::managed_version::v6_21_1_wine(),
+                fixture::managed_version::v6_20_1_proton(),
+                fixture::managed_version::v6_21_1_proton(),
+                fixture::managed_version::v6_21_2_proton(),
+                fixture::managed_version::v6_22_1_proton(),
             ]),
             app_config,
             true,
@@ -1488,10 +1522,10 @@ mod tests {
         assert_eq!(removed_and_managed_versions.managed_versions.len(), 4);
         assert_eq!(removed_and_managed_versions.removed_versions.len(), 4);
         vec![
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::lol(), ""),
-            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::lol(), ""),
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::wine(), ""),
-            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::wine(), ""),
+            fixture::managed_version::v6_20_1_lol(),
+            fixture::managed_version::v6_21_1_lol(),
+            fixture::managed_version::v6_20_1_wine(),
+            fixture::managed_version::v6_21_1_wine(),
         ]
         .iter()
         .for_each(|version| {
@@ -1500,10 +1534,10 @@ mod tests {
         assert_eq!(
             removed_and_managed_versions.removed_versions,
             ManagedVersions::new(vec![
-                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, ""),
-                ManagedVersion::new("6.22-GE-1", "6.22-GE-1", TagKind::Proton, ""),
+                fixture::managed_version::v6_20_1_proton(),
+                fixture::managed_version::v6_21_1_proton(),
+                fixture::managed_version::v6_21_2_proton(),
+                fixture::managed_version::v6_22_1_proton(),
             ])
         );
     }
@@ -1528,14 +1562,14 @@ mod tests {
         let mut stderr = AssertLines::new();
         let app_config = ApplicationConfig::new(TagKind::Proton, "6-20-GE-1".to_string());
         let input: CleanCommandInput<Version, Version> = CleanCommandInput::new(
-            Some(Version::new("6.21-GE-2", TagKind::Proton)),
+            Some(Version::new(None, "6.21-GE-2", TagKind::Proton)),
             None,
             None,
             ManagedVersions::new(vec![
-                ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, "6-20-GE-1"),
-                ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, ""),
-                ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, ""),
-                ManagedVersion::new("6.22-GE-1", "6.22-GE-1", TagKind::Proton, ""),
+                fixture::managed_version::v6_20_1_proton(),
+                fixture::managed_version::v6_21_1_proton(),
+                fixture::managed_version::v6_21_2_proton(),
+                fixture::managed_version::v6_22_1_proton(),
             ]),
             app_config,
             false,
@@ -1545,9 +1579,9 @@ mod tests {
         assert_eq!(removed_and_managed_versions.managed_versions.len(), 3);
         assert_eq!(removed_and_managed_versions.removed_versions.len(), 1);
         vec![
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
-            ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, ""),
-            ManagedVersion::new("6.22-GE-1", "6.22-GE-1", TagKind::Proton, ""),
+            fixture::managed_version::v6_20_1_proton(),
+            fixture::managed_version::v6_21_2_proton(),
+            fixture::managed_version::v6_22_1_proton(),
         ]
         .iter()
         .for_each(|version| {
@@ -1555,7 +1589,7 @@ mod tests {
         });
         assert_eq!(
             removed_and_managed_versions.removed_versions,
-            ManagedVersions::new(vec![ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, "")])
+            ManagedVersions::new(vec![fixture::managed_version::v6_21_1_proton()])
         );
 
         stderr.assert_count(2);
@@ -1574,17 +1608,17 @@ mod tests {
 
         let mut stdout = AssertLines::new();
         let managed_versions = ManagedVersions::new(vec![
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::lol(), ""),
-            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::lol(), ""),
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::wine(), ""),
-            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::wine(), ""),
-            ManagedVersion::new("6.20-GE-1", "6.20-GE-1", TagKind::Proton, ""),
-            ManagedVersion::new("6.21-GE-1", "6.21-GE-1", TagKind::Proton, ""),
-            ManagedVersion::new("6.21-GE-2", "6.21-GE-2", TagKind::Proton, ""),
-            ManagedVersion::new("6.22-GE-1", "6.22-GE-1", TagKind::Proton, ""),
+            fixture::managed_version::v6_20_1_lol(),
+            fixture::managed_version::v6_21_1_lol(),
+            fixture::managed_version::v6_20_1_wine(),
+            fixture::managed_version::v6_21_1_wine(),
+            fixture::managed_version::v6_20_1_proton(),
+            fixture::managed_version::v6_21_1_proton(),
+            fixture::managed_version::v6_21_2_proton(),
+            fixture::managed_version::v6_22_1_proton(),
         ]);
         let input: CleanDryRunInput<Version, Version> = CleanDryRunInput::new(
-            Some(Version::new("6.21-GE-2", TagKind::Proton)),
+            Some(Version::new(None, "6.21-GE-2", TagKind::Proton)),
             None,
             None,
             &managed_versions,

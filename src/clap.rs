@@ -29,6 +29,7 @@ pub mod arg_names {
     pub const END: &str = "end";
     pub const FORGET: &str = "forget";
     pub const DRY_RUN: &str = "dry-run";
+    pub const LABEL: &str = "label";
 }
 
 pub mod arg_group_names {

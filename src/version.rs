@@ -4,8 +4,10 @@ use std::fmt::{Display, Formatter};
 
 use ge_man_lib::tag::{Tag, TagKind};
 
-use crate::data::ManagedVersion;
+use crate::label::Label;
 
+// TODO: With Version and ManagedVersion diverging due to the label attribute this trait loses its benefit. It should
+//  be removed.
 pub trait Versioned {
     fn tag(&self) -> &Tag;
     fn kind(&self) -> &TagKind;
@@ -56,33 +58,36 @@ impl<'a> fmt::Debug for dyn Versioned + 'a {
 pub struct Version {
     tag: Tag,
     kind: TagKind,
+    label: Option<Label>,
 }
 
 impl Version {
-    pub fn new<T>(tag: T, kind: TagKind) -> Version
+    pub fn new<T>(label: Option<Label>, tag: T, kind: TagKind) -> Version
     where
         T: Into<Tag>,
     {
         let tag = tag.into();
-        Version { tag, kind }
+        Version { label, tag, kind }
     }
 
-    pub fn proton(tag: &str) -> Self {
-        Version::new(tag, TagKind::Proton)
+    pub fn proton(label: Option<Label>, tag: &str) -> Self {
+        Version::new(label, tag, TagKind::Proton)
     }
 
-    pub fn wine(tag: &str) -> Self {
-        Version::new(tag, TagKind::wine())
+    pub fn wine(label: Option<Label>, tag: &str) -> Self {
+        Version::new(label, tag, TagKind::wine())
     }
 
-    pub fn lol(tag: &str) -> Self {
-        Version::new(tag, TagKind::lol())
+    pub fn lol(label: Option<Label>, tag: &str) -> Self {
+        Version::new(label, tag, TagKind::lol())
     }
 
-    pub fn into_managed(self, file_name: String) -> ManagedVersion {
-        let mut v = ManagedVersion::from(self);
-        v.set_directory_name(file_name);
-        v
+    pub fn label(&self) -> Option<&Label> {
+        self.label.as_ref()
+    }
+
+    pub fn set_label(&mut self, label: Option<Label>) {
+        self.label = label;
     }
 }
 
@@ -114,22 +119,18 @@ impl Display for Version {
     }
 }
 
-impl From<Box<dyn Versioned>> for Version {
-    fn from(versioned: Box<dyn Versioned>) -> Self {
-        Version::new(versioned.tag().clone(), versioned.kind().clone())
-    }
-}
-
 #[cfg(test)]
 mod version_tests {
     use test_case::test_case;
+
+    use crate::fixture;
 
     use super::*;
 
     #[test]
     fn new() {
         let tag = "6.20-GE-1";
-        let version = Version::new(tag, TagKind::Proton);
+        let version = Version::new(Some(Label::new(tag).unwrap()), tag, TagKind::Proton);
         assert_eq!(version.tag, Tag::new(tag));
         assert_eq!(version.kind, TagKind::Proton);
     }
@@ -137,7 +138,8 @@ mod version_tests {
     #[test]
     fn proton() {
         let tag = "6.20-GE-1";
-        let version = Version::proton(tag);
+        let label = Label::new(tag).unwrap();
+        let version = Version::proton(Some(label), tag);
         assert_eq!(version.tag, Tag::new(tag));
         assert_eq!(version.kind, TagKind::Proton);
     }
@@ -145,7 +147,8 @@ mod version_tests {
     #[test]
     fn wine() {
         let tag = "6.20-GE-1";
-        let version = Version::wine(tag);
+        let label = Label::new(tag).unwrap();
+        let version = Version::wine(Some(label), tag);
         assert_eq!(version.tag, Tag::new(tag));
         assert_eq!(version.kind, TagKind::wine());
     }
@@ -153,26 +156,32 @@ mod version_tests {
     #[test]
     fn lol() {
         let tag = "6.16-GE-3-LoL";
-        let version = Version::lol(tag);
+        let label = Label::new(tag).unwrap();
+        let version = Version::lol(Some(label), tag);
         assert_eq!(version.tag, Tag::new(tag));
         assert_eq!(version.kind, TagKind::lol());
     }
 
-    #[test_case(Version::proton("6.20-GE-1"), Version::proton("6.20-GE-1") => true; "Proton versions should be equal")]
-    #[test_case(Version::proton("6.20-GE-1"), Version::proton("6.19-GE-1") => false; "Proton versions should not be equal")]
-    #[test_case(Version::proton("6.20-GE-1"), Version::proton("6.20-GE-1") => true; "Wine versions should be equal")]
-    #[test_case(Version::proton("6.20-GE-1"), Version::proton("6.19-GE-1") => false; "Wine versions should not be equal")]
-    #[test_case(Version::proton("6.16-GE-3-LoL"), Version::proton("6.16-GE-3-LoL") => true; "LoL versions should be equal")]
-    #[test_case(Version::proton("6.16-GE-3-LoL"), Version::proton("6.16-2-GE-LoL") => false; "LoL versions should not be equal")]
-    #[test_case(Version::proton("6.20-GE-1"), Version::wine("6.20-GE-1") => false; "Proton version should not be equal to Wine version")]
-    #[test_case(Version::proton("6.20-GE-1"), Version::lol("6.20-GE-1") => false; "Proton versions should not be equal to LoL version")]
+    #[test_case(fixture::version::v6_20_1_proton(), fixture::version::v6_20_1_proton() => true; "Proton versions should be equal")]
+    #[test_case(fixture::version::v6_20_1_proton(), fixture::version::v6_19_1_proton() => false; "Proton versions should not be equal")]
+    #[test_case(fixture::version::v6_20_1_wine(), fixture::version::v6_20_1_wine() => true; "Wine versions should be equal")]
+    #[test_case(fixture::version::v6_20_1_wine(), fixture::version::v6_19_1_wine() => false; "Wine versions should not be equal")]
+    #[test_case(fixture::version::v6_16_3_lol(), fixture::version::v6_16_3_lol() => true; "LoL versions should be equal")]
+    #[test_case(fixture::version::v6_16_3_lol(), fixture::version::v6_16_2_lol() => false; "LoL versions should not be equal")]
+    #[test_case(fixture::version::v6_20_1_proton(), fixture::version::v6_20_1_wine() => false; "Proton version should not be equal to Wine version")]
+    #[test_case(fixture::version::v6_20_1_proton(), fixture::version::v6_16_3_lol() => false; "Proton version should not be equal to LoL version")]
+    #[test_case(fixture::version::v6_20_1_wine(), fixture::version::v6_20_1_lol() => false; "Wine version should not be equal to LoL version")]
+    #[test_case(fixture::version::v6_20_1_proton_custom_label(), fixture::version::v6_20_1_proton_custom_label() => true; "Same custom label should be equal")]
+    #[test_case(fixture::version::v6_20_1_proton_custom_label(), fixture::version::v6_20_1_proton_custom_label_2() => false; "Different custom label should not be equal")]
     fn eq(version1: Version, version2: Version) -> bool {
         version1.eq(&version2)
     }
 
-    #[test_case(Version::proton("6.20-GE-1"), Version::proton("6.20-GE-1") => true; "Order should be equal Proton tags")]
-    #[test_case(Version::proton("6.20-GE-1"), Version::wine("6.20-GE-1") => false; "Order should not be equal Proton and Wine tag")]
-    #[test_case(Version::proton("6.20-GE-1"), Version::lol("6.20-GE-1") => false; "Order should not be equal Proton and LoL tag")]
+    #[test_case(fixture::version::v6_20_1_proton(), fixture::version::v6_20_1_proton() => true; "Order should be equal for Proton tags")]
+    #[test_case(fixture::version::v6_20_1_proton_custom_label(), fixture::version::v6_20_1_proton_custom_label() => true; "Order should be equal for Proton tags with same label")]
+    #[test_case(fixture::version::v6_20_1_proton_custom_label(), fixture::version::v6_20_1_proton_custom_label_2() => true; "Order should not be equal for Proton tags with different labels")]
+    #[test_case(fixture::version::v6_20_1_proton(), fixture::version::v6_20_1_wine() => false; "Order should not be equal for Proton and Wine tag")]
+    #[test_case(fixture::version::v6_20_1_proton(), fixture::version::v6_16_3_lol() => false; "Order should not be equal for Proton and LoL tag")]
     fn cmp(version1: Version, version2: Version) -> bool {
         version1.cmp(&version2).eq(&Ordering::Equal)
     }
